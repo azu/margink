@@ -1,0 +1,79 @@
+name: Create Release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  create-release-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "lts/*"
+
+      # npm version needs no dependencies. The extension's manifest version
+      # comes from package.json, so this is the only file that changes.
+      - name: Version bump
+        id: version
+        run: |
+          npm version "$VERSION_TYPE" --no-git-tag-version
+          VERSION=$(jq -r '.version' package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        env:
+          VERSION_TYPE: ${{ github.event.inputs.version }}
+
+      - name: Get release notes
+        run: |
+          DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')
+          if LAST_TAG=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name' 2>/dev/null); then
+            echo "Previous release: $LAST_TAG"
+          else
+            LAST_TAG=""
+            echo "No previous release; this is the first one"
+          fi
+          ARGS=(-f "tag_name=v$VERSION" -f "target_commitish=$DEFAULT_BRANCH")
+          if [ -n "$LAST_TAG" ]; then
+            ARGS+=(-f "previous_tag_name=$LAST_TAG")
+          fi
+          RELEASE_NOTES=$(gh api --method POST -H "Accept: application/vnd.github+json" \
+            "/repos/$GITHUB_REPOSITORY/releases/generate-notes" "${ARGS[@]}" --jq '.body')
+          {
+            echo "RELEASE_NOTES<<EOF"
+            echo "$RELEASE_NOTES"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
+        with:
+          branch: release/v${{ steps.version.outputs.version }}
+          delete-branch: true
+          title: "Release v${{ steps.version.outputs.version }}"
+          body: |
+            ${{ env.RELEASE_NOTES }}
+          commit-message: "chore: release v${{ steps.version.outputs.version }}"
+          labels: |
+            Type: Release
+          assignees: ${{ github.actor }}
+          draft: true
