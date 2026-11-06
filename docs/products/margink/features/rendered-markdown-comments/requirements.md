@@ -16,7 +16,7 @@ The reviewer uses their existing GitHub sign-in. They do not need to create or e
 
 ### Out of scope
 
-This feature does not edit or commit the document being reviewed. Replies, comment editing and deletion, resolving threads, and submitting an overall review use GitHub's standard UI. It does not add a separate review service or require the repository to adopt a new document format. Selecting a cross-browser development toolkit belongs in Design; Firefox release support is not yet committed.
+This feature does not edit or commit the document being reviewed. A comment this extension posted can be edited or deleted in place while its card is on the page; replies, editing or deleting other comments, resolving threads, and submitting an overall review use GitHub's standard UI. It does not add a separate review service or require the repository to adopt a new document format. Selecting a cross-browser development toolkit belongs in Design; Firefox release support is not yet committed.
 
 ## User stories
 
@@ -121,6 +121,18 @@ Scenario: When the reviewer adds a comment to the review, it waits for the revie
 - Given: GitHub publication mode is selected, the reviewer is signed in and permitted to comment, and the input contains a nonempty comment on a supported passage.
 - When: The reviewer uses the add-to-review action instead of the publish action.
 - Then: The comment is added to the reviewer's pending GitHub review on the same source line or range, other people cannot read it until the reviewer submits the review in GitHub's standard UI, and the input shows that it was added to the review rather than published.
+
+Scenario: When a posted comment is changed in place, GitHub's comment is updated
+
+- Given: The reviewer posted a comment with this extension, or added it to the review, and its card is still on the page.
+- When: The reviewer puts the cursor in the comment's text, changes it, and confirms.
+- Then: The same GitHub comment is updated with the new text and its original quotation, and no new comment is created. Escape before confirming restores the saved text.
+
+Scenario: When a posted comment is deleted, it is removed from GitHub after confirmation
+
+- Given: The reviewer posted a comment with this extension and its card is still on the page.
+- When: The reviewer chooses to delete it and confirms the deletion.
+- Then: The GitHub comment is deleted and its card disappears. Cancelling the confirmation keeps the comment.
 
 ### Collect feedback and copy it with context
 
@@ -248,7 +260,7 @@ Publication must use the account currently signed in to GitHub and respect that 
 
 #### Exceptional behavior
 
-Expired sign-in, insufficient permission, an unavailable target, or a rejected request leaves the comment available and explains why it was not published. Failure must not silently change the destination to a different GitHub comment type or a local collection. The reviewer can explicitly choose collection and copying.
+Expired sign-in, insufficient permission, an unavailable target, or a rejected request leaves the comment available and explains why it was not published. Failure must not silently change the destination to a different GitHub comment type or a local collection. The reviewer can explicitly choose collection and copying. A failed edit keeps the edited text in the card and explains why it was not saved; a failed deletion keeps the card.
 
 ### Copy collected feedback
 
@@ -278,7 +290,7 @@ Report a failed copy without claiming that the clipboard was updated. Retain the
 
 #### Applicable conditions
 
-Include comments created through GitHub as well as those published by this extension, and show replies that are part of those threads. Preserve the author and GitHub's resolved or outdated status when available. Opening a comment reveals its associated text when the location can be identified. Reading a thread does not change its state. Replying, editing, deleting, and resolving use GitHub's standard UI.
+Include comments created through GitHub as well as those published by this extension, and show replies that are part of those threads. Preserve the author and GitHub's resolved or outdated status when available. Opening a comment reveals its associated text when the location can be identified. Reading a thread does not change its state. Replying and resolving use GitHub's standard UI, as do editing and deleting comments other than those this extension posted on the current page.
 
 #### Exceptional behavior
 

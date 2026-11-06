@@ -66,8 +66,17 @@ export function buildCreateCommentBody(comparison: Comparison, target: LineTarge
   };
 }
 
+/**
+ * A published comment Margink can edit or delete: its database ID and the
+ * body version GitHub uses to detect conflicting edits, when it sent one.
+ */
+export interface PostedComment {
+  id: string;
+  bodyVersion: string | null;
+}
+
 export type PublishResult =
-  | { state: "published"; url: string | null }
+  | { state: "published"; url: string | null; comment: PostedComment | null }
   | { state: "failed"; reason: string }
   | { state: "unknown"; reason: string };
 
@@ -85,7 +94,7 @@ export async function classifyResponse(res: Response): Promise<PublishResult> {
     if (json === null) {
       return { state: "unknown", reason: "GitHub answered in an unexpected format. The comment may have been published; check the pull request." };
     }
-    return { state: "published", url: findCommentUrl(json) };
+    return { state: "published", url: findCommentUrl(json), comment: findPostedComment(json) };
   }
   switch (res.status) {
     case 401:
@@ -112,6 +121,92 @@ function findCommentUrl(json: unknown): string | null {
       return typeof url === "string" && /#(discussion_)?r\d+$/.test(url) ? url : undefined;
     }) ?? null
   );
+}
+
+/**
+ * The new comment's ID and body version. The ID is the comment record's
+ * `databaseId`, or the number in its `#discussion_r<id>` URL.
+ */
+export function findPostedComment(json: unknown): PostedComment | null {
+  return (
+    findInJson(json, (v) => {
+      if (!isRecord(v)) return undefined;
+      const url = v.url ?? v.htmlUrl;
+      const fromUrl = typeof url === "string" ? /#(?:discussion_)?r(\d+)$/.exec(url)?.[1] : undefined;
+      // Only the record with the comment's own URL is the comment: other
+      // records in the answer, such as the pull request, have IDs too.
+      if (!fromUrl) return undefined;
+      const id = typeof v.databaseId === "number" || (typeof v.databaseId === "string" && /^\d+$/.test(v.databaseId)) ? String(v.databaseId) : fromUrl;
+      const bodyVersion = typeof v.bodyVersion === "string" ? v.bodyVersion : (findInJson(json, (x) => (isRecord(x) && typeof x.bodyVersion === "string" ? x.bodyVersion : undefined)) ?? null);
+      return { id, bodyVersion };
+    }) ?? null
+  );
+}
+
+export type ChangeResult =
+  | { state: "done"; bodyVersion: string | null }
+  | { state: "failed"; reason: string }
+  | { state: "unknown"; reason: string };
+
+/** Turn GitHub's answer to an edit or a delete into a result the card can show. */
+async function classifyChange(res: Response, action: "edit" | "delete"): Promise<ChangeResult> {
+  let json: unknown = null;
+  try {
+    json = res.status === 204 ? null : await res.json();
+  } catch {
+    json = null;
+  }
+  if (res.ok) {
+    const bodyVersion = findInJson(json, (x) => (isRecord(x) && typeof x.bodyVersion === "string" ? x.bodyVersion : undefined)) ?? null;
+    return { state: "done", bodyVersion };
+  }
+  const done = action === "edit" ? "updated" : "deleted";
+  const error = isRecord(json) && typeof json.error === "string" ? json.error : null;
+  switch (res.status) {
+    case 401:
+      return { state: "failed", reason: "You are signed out of GitHub. Sign in and try again." };
+    case 403:
+      return { state: "failed", reason: `Your GitHub account cannot ${action} this comment.` };
+    case 404:
+      return { state: "failed", reason: "GitHub could not find this comment. It may have been deleted; reload the page." };
+    case 409:
+      return { state: "failed", reason: "The comment changed on GitHub since it was posted. Reload the page and edit it again." };
+    default:
+      if (res.status >= 500) {
+        return { state: "unknown", reason: `GitHub returned ${res.status}. The comment may have been ${done}; check the pull request.` };
+      }
+      return { state: "failed", reason: `GitHub rejected the ${action} (${res.status})${error ? `: ${error}` : "."}` };
+  }
+}
+
+/** Replace the body of a comment Margink posted. */
+export async function updateComment(pull: PullRef, comment: PostedComment, body: string, fetchFn: FetchLike): Promise<ChangeResult> {
+  const query = comment.bodyVersion ? `?body_version=${encodeURIComponent(comment.bodyVersion)}` : "";
+  try {
+    const res = await fetchFn(`${pullPath(pull)}/page_data/update_review_comment${query}`, {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { ...PAGE_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({ body, commentId: comment.id }),
+    });
+    return await classifyChange(res, "edit");
+  } catch {
+    return { state: "unknown", reason: "The connection to GitHub failed. The comment may have been updated; check the pull request." };
+  }
+}
+
+/** Delete a comment Margink posted. */
+export async function deleteComment(pull: PullRef, comment: PostedComment, fetchFn: FetchLike): Promise<ChangeResult> {
+  try {
+    const res = await fetchFn(`${pullPath(pull)}/page_data/review_comments/${comment.id}`, {
+      method: "DELETE",
+      credentials: "same-origin",
+      headers: PAGE_HEADERS,
+    });
+    return await classifyChange(res, "delete");
+  } catch {
+    return { state: "unknown", reason: "The connection to GitHub failed. The comment may have been deleted; check the pull request." };
+  }
 }
 
 /** Publish one review comment through the signed-in GitHub session. */
