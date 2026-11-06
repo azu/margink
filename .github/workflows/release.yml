@@ -80,17 +80,18 @@ jobs:
       # channel signs the build for self-distribution without listing it on
       # addons.mozilla.org. Skipped until the AMO API key is configured.
       # Mozilla can take a while to approve a version, and web-ext stops
-      # waiting after 15 minutes by default, so wait up to an hour.
+      # waiting after 15 minutes by default, so wait up to 30 minutes.
+      # v0.1.1 was signed in about 3.5 minutes.
       - name: Sign the Firefox package
         id: firefox
         if: steps.tag-check.outputs.exists == 'false' && env.AMO_CONFIGURED == 'true'
-        timeout-minutes: 70
+        timeout-minutes: 35
         run: |
           npx --yes web-ext@10.8.0 sign \
             --source-dir .output/firefox-mv2 \
             --artifacts-dir .output/signed \
             --channel unlisted \
-            --approval-timeout 3600000
+            --approval-timeout 1800000
           cp .output/signed/*.xpi "release/margink-$VERSION-firefox.xpi"
           echo "signed=true" >> "$GITHUB_OUTPUT"
         env:
