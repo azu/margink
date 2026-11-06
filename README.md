@@ -3,6 +3,9 @@
 Margink is a browser extension for commenting on rendered Markdown in GitHub pull requests.
 Select text in a rendered Markdown diff, write a comment beneath it, and publish it as a GitHub line comment with your existing GitHub sign-in.
 
+https://github.com/user-attachments/assets/5fc70416-2244-4af6-8469-163f23dd22e0
+
+
 The specifications live in [docs/](docs/README.md).
 
 ## Install
