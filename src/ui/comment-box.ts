@@ -15,6 +15,7 @@ export const UI_ATTRIBUTE = "data-margink-ui";
  */
 const STYLE = `
 :host { all: initial; display: inline-block; box-sizing: border-box; width: 100%; vertical-align: top; margin: 8px 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 16px; line-height: 1.5; color: var(--fgColor-default, #1f2328); text-indent: 0; text-align: start; white-space: normal; }
+:host([data-armed]) { width: 0; height: 0; margin: 0; overflow: hidden; opacity: 0; }
 .card { position: relative; border: 1px solid var(--borderColor-muted, #d1d9e0b3); border-radius: 6px; background: var(--bgColor-muted, #f6f8fa); padding: 10px 12px 10px 14px; }
 .card::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; border-radius: 6px 0 0 6px; background: var(--margink-bar); }
 .card[data-state="draft"] { --margink-bar: var(--margink-accent, #8250df); }
@@ -50,6 +51,10 @@ export interface CommentBoxOptions {
   avatarUrl?: string | null;
   onConfirm(body: string): void;
   onCancel(): void;
+  /** Called once when the reviewer starts typing in an armed composer. */
+  onReveal?(): void;
+  /** Called when a key that is not typing reaches an armed composer. */
+  onDisarm?(): void;
 }
 
 /** The inline comment composer. It renders inside a shadow root. */
@@ -63,6 +68,7 @@ export class CommentBox {
   private readonly confirmButton: HTMLButtonElement;
   private busy = false;
   private ready = false;
+  private armed = false;
 
   constructor(doc: Document, private readonly options: CommentBoxOptions) {
     this.host = doc.createElement("div");
@@ -96,12 +102,21 @@ export class CommentBox {
     if (options.avatarUrl) avatar.src = options.avatarUrl;
 
     this.confirmButton.addEventListener("click", () => this.confirm());
+    // Typing or IME composition in an armed composer reveals it in place.
+    // The text area keeps focus, so the composition continues uninterrupted.
+    this.textarea.addEventListener("compositionstart", () => this.reveal());
+    this.textarea.addEventListener("beforeinput", () => this.reveal());
     this.textarea.addEventListener("input", () => {
       this.autosize();
       if (this.status.dataset.kind === "error" && this.ready) this.showStatus("", "info");
     });
     this.textarea.addEventListener("keydown", (event) => {
       event.stopPropagation(); // Keep GitHub's page shortcuts away from the composer.
+      if (this.armed && isPageKey(event)) {
+        // Navigation and editing keys belong to the page while nothing is typed.
+        this.options.onDisarm?.();
+        return;
+      }
       if (event.key === "Escape" && !event.isComposing) {
         event.preventDefault();
         this.options.onCancel();
@@ -115,6 +130,32 @@ export class CommentBox {
     });
     this.textarea.addEventListener("keyup", (e) => e.stopPropagation());
     this.textarea.addEventListener("keypress", (e) => e.stopPropagation());
+  }
+
+  /**
+   * Prepare the composer without showing it: it takes no space, but its text
+   * area has focus, so the first key (including IME input) goes into it.
+   */
+  arm(copyText: string): void {
+    this.armed = true;
+    this.host.setAttribute("data-armed", "");
+    // Copying while armed copies the selected passage, as the page would.
+    this.textarea.addEventListener("copy", (event) => {
+      if (!this.armed || !event.clipboardData) return;
+      event.clipboardData.setData("text/plain", copyText);
+      event.preventDefault();
+    });
+  }
+
+  get isArmed(): boolean {
+    return this.armed;
+  }
+
+  private reveal(): void {
+    if (!this.armed) return;
+    this.armed = false;
+    this.host.removeAttribute("data-armed");
+    this.options.onReveal?.();
   }
 
   get body(): string {
@@ -199,4 +240,15 @@ export class CommentBox {
     if (this.busy || !this.ready) return;
     this.options.onConfirm(this.textarea.value);
   }
+}
+
+/**
+ * Keys that act on the page rather than type text: navigation, Tab, and
+ * shortcuts with Command, Control, or Alt (copying is handled separately).
+ */
+export function isPageKey(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "isComposing">): boolean {
+  if (event.isComposing) return false;
+  if (event.ctrlKey || event.metaKey) return !/^[cC]$/.test(event.key);
+  if (event.altKey) return false; // Alt produces characters on some layouts.
+  return /^(Arrow|Page|Home$|End$|Tab$)/.test(event.key);
 }

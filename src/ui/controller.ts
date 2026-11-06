@@ -9,10 +9,12 @@ import { parsePullUrl, pullPath, type PullRef } from "../github/pull";
 import { loadSourceLines } from "../github/source";
 import { CommentBox, UI_ATTRIBUTE } from "./comment-box";
 
+const ARMED_HIGHLIGHT = "margink-armed";
 const DRAFT_HIGHLIGHT = "margink-draft";
 const POSTED_HIGHLIGHT = "margink-posted";
 
 const PAGE_STYLE = `
+::highlight(${ARMED_HIGHLIGHT}) { background-color: rgba(84, 174, 255, .35); }
 ::highlight(${DRAFT_HIGHLIGHT}) { text-decoration: underline 2px #8250df; text-underline-offset: 4px; }
 ::highlight(${POSTED_HIGHLIGHT}) { text-decoration: underline 2px rgba(130, 80, 223, .55); text-underline-offset: 4px; }
 @media (prefers-color-scheme: dark) {
@@ -28,6 +30,7 @@ interface Draft {
   selectedText: string;
   target: LineTarget | null;
   comparison: Comparison | null;
+  root: Element;
   /** The element the composer was inserted into, merged back on cancel. */
   parent: Node | null;
 }
@@ -52,10 +55,15 @@ export class Controller {
     style.setAttribute(UI_ATTRIBUTE, "style");
     style.textContent = PAGE_STYLE;
     this.doc.head.append(style);
-    // Typing while commentable text is selected starts a comment. The capture
-    // phase runs before GitHub's single-key shortcuts, and the key is not
-    // cancelled, so it lands in the composer that receives focus here.
-    this.doc.defaultView?.addEventListener("keydown", (e) => this.onKeyDown(e), true);
+    // When a selection is finished, an invisible composer takes focus, so the
+    // next key types into it (through the IME when one is active) instead of
+    // reaching GitHub's single-key shortcuts.
+    this.doc.addEventListener("mouseup", (e) => {
+      if (e.button === 0) setTimeout(() => this.onSelectionFinished(), 0);
+    });
+    this.doc.addEventListener("keyup", (e) => {
+      if (e.key === "Shift") this.onSelectionFinished();
+    });
     // An empty composer is dismissed by clicking elsewhere, like a popover.
     this.doc.addEventListener("mousedown", (e) => {
       const draft = this.draft;
@@ -74,8 +82,7 @@ export class Controller {
     return start;
   }
 
-  private onKeyDown(event: KeyboardEvent): void {
-    if (!startsComment(event) || isEditable(this.doc.activeElement)) return;
+  private onSelectionFinished(): void {
     const sel = this.doc.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) return;
     if (!parsePullUrl(this.doc.location.href)) return;
@@ -83,19 +90,17 @@ export class Controller {
     if (!this.selectionRoot(range)) return;
     // A composer that already holds text is not replaced by a new selection.
     if (this.draft && !isBlankComment(this.draft.box.body)) return;
-    event.stopPropagation();
-    void this.openDraft(range.cloneRange());
+    this.armDraft(range.cloneRange());
   }
 
-  /** Open the comment box for a selection, keeping any text from an earlier draft. */
-  async openDraft(range: Range): Promise<void> {
+  /** Insert an invisible composer beneath the selection and give it focus. */
+  armDraft(range: Range): void {
     const pull = parsePullUrl(this.doc.location.href);
     const root = this.selectionRoot(range);
     if (!pull || !root) return;
-
-    const previousBody = this.draft?.box.body ?? "";
     this.closeDraft();
 
+    const selectedText = range.toString();
     const box = new CommentBox(this.doc, {
       chord: DEFAULT_CHORD,
       mac: this.mac,
@@ -103,14 +108,22 @@ export class Controller {
       avatarUrl: viewerAvatarUrl(this.doc),
       onConfirm: (body) => void this.confirm(body),
       onCancel: () => this.closeDraft(),
+      onReveal: () => void this.revealDraft(draft),
+      onDisarm: () => this.closeDraft({ restoreSelection: true }),
     });
-    box.body = previousBody;
+    box.arm(selectedText);
     insertBeneathLine(range, root, box.host);
-    const draft: Draft = { pull, box, range, selectedText: range.toString(), target: null, comparison: null, parent: box.host.parentNode };
+    const draft: Draft = { pull, box, range, root, selectedText, target: null, comparison: null, parent: box.host.parentNode };
     this.draft = draft;
-    this.paintHighlights();
     box.focus();
+    this.paintHighlights();
+  }
 
+  /** The reviewer started typing: show the composer and resolve its target. */
+  private async revealDraft(draft: Draft): Promise<void> {
+    if (this.draft !== draft) return;
+    this.paintHighlights();
+    const { box, range, root, pull } = draft;
     try {
       const side = sideOfRange(range, root);
       if (side === "mixed") {
@@ -174,12 +187,17 @@ export class Controller {
     box.showStatus(result.reason, "error");
   }
 
-  private closeDraft(): void {
+  private closeDraft(options: { restoreSelection?: boolean } = {}): void {
     const draft = this.draft;
     this.draft = null;
     if (draft) {
       draft.box.host.remove();
       draft.parent?.normalize(); // Rejoin the text split for the composer.
+      if (options.restoreSelection) {
+        const sel = this.doc.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(draft.range);
+      }
     }
     this.paintHighlights();
   }
@@ -188,7 +206,12 @@ export class Controller {
     const css = (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS;
     const HighlightCtor = (globalThis as { Highlight?: new (...r: Range[]) => unknown }).Highlight;
     if (!css?.highlights || !HighlightCtor) return;
-    if (this.draft) css.highlights.set(DRAFT_HIGHLIGHT, new HighlightCtor(this.draft.range));
+    // While armed, the passage looks selected; once typing starts it is underlined.
+    const armed = this.draft?.box.isArmed ? this.draft.range : null;
+    const drafting = this.draft && !this.draft.box.isArmed ? this.draft.range : null;
+    if (armed) css.highlights.set(ARMED_HIGHLIGHT, new HighlightCtor(armed));
+    else css.highlights.delete(ARMED_HIGHLIGHT);
+    if (drafting) css.highlights.set(DRAFT_HIGHLIGHT, new HighlightCtor(drafting));
     else css.highlights.delete(DRAFT_HIGHLIGHT);
     css.highlights.set(POSTED_HIGHLIGHT, new HighlightCtor(...this.posted));
   }
@@ -221,19 +244,6 @@ export class Controller {
 export function viewerAvatarUrl(doc: Document): string | null {
   const login = doc.querySelector<HTMLMetaElement>('meta[name="user-login"]')?.content;
   return login ? `https://github.com/${encodeURIComponent(login)}.png?size=40` : null;
-}
-
-/** A key that types text: a printable character, or the start of IME input. */
-export function startsComment(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "defaultPrevented">): boolean {
-  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
-  if (event.key === "Process") return true;
-  return [...event.key].length === 1 && event.key !== " ";
-}
-
-function isEditable(el: Element | null): boolean {
-  if (!el) return false;
-  if (el.closest(`[${UI_ATTRIBUTE}]`)) return true;
-  return el.matches("input, textarea, select, [contenteditable=''], [contenteditable='true']");
 }
 
 function elementOf(node: Node): Element | null {
