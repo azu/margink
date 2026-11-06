@@ -1,12 +1,13 @@
 import { buildCommentBody, isBlankComment } from "../lib/comment-body";
 import { buildSourceIndex, type SourceIndex } from "../lib/normalize";
-import { insertBeneathLine, renderedSide, SELECTORS, sideOfRange } from "../lib/rendered";
+import { blockRange, insertAfterBlock, insertBeneathLine, lineBlockAt, renderedSide, SELECTORS, sideOfBlock, sideOfRange } from "../lib/rendered";
 import { RESOLVE_MESSAGES, resolveSelection } from "../lib/resolve";
 import { DEFAULT_CHORD, isMacPlatform } from "../lib/shortcut";
 import { loadComparison, sha256Hex, type Comparison, type FetchLike } from "../github/comparison";
 import { publishComment, type LineTarget } from "../github/publish";
 import { parsePullUrl, pullPath, type PullRef } from "../github/pull";
 import { loadSourceLines } from "../github/source";
+import { AddButton } from "./add-button";
 import { CommentBox, UI_ATTRIBUTE } from "./comment-box";
 
 const ARMED_HIGHLIGHT = "margink-armed";
@@ -27,7 +28,10 @@ interface Draft {
   pull: PullRef;
   box: CommentBox;
   range: Range;
-  selectedText: string;
+  /** The selected words, quoted in the published comment; empty for a whole block. */
+  quote: string;
+  /** Whether the comment is on a whole block from the add button. */
+  wholeBlock: boolean;
   target: LineTarget | null;
   comparison: Comparison | null;
   root: Element;
@@ -42,12 +46,14 @@ export class Controller {
   private comparison: { key: string; value: Promise<Comparison> } | null = null;
   private readonly sources = new Map<string, Promise<SourceIndex>>();
   private readonly mac: boolean;
+  private readonly addButton: AddButton;
 
   constructor(
     private readonly doc: Document,
     private readonly fetchFn: FetchLike,
   ) {
     this.mac = isMacPlatform(doc.defaultView?.navigator.platform ?? "");
+    this.addButton = new AddButton(doc, (block, root) => this.startBlockDraft(block, root));
   }
 
   start(): void {
@@ -59,7 +65,8 @@ export class Controller {
     // next key types into it (through the IME when one is active) instead of
     // reaching GitHub's single-key shortcuts.
     this.doc.addEventListener("mouseup", (e) => {
-      if (e.button === 0) setTimeout(() => this.onSelectionFinished(), 0);
+      if (e.button !== 0 || isMarginkUi(e.target)) return;
+      setTimeout(() => this.onSelectionFinished(), 0);
     });
     this.doc.addEventListener("keyup", (e) => {
       if (e.key === "Shift") this.onSelectionFinished();
@@ -71,6 +78,23 @@ export class Controller {
       if (e.target instanceof Node && draft.box.host.contains(e.target)) return;
       this.closeDraft();
     });
+    // Hovering a rendered block shows the add button beside it, as GitHub
+    // shows "+" beside a hovered line in a source diff.
+    this.doc.addEventListener("mousemove", (e) => this.onHover(e.target), { passive: true });
+    this.doc.defaultView?.addEventListener("resize", () => this.addButton.reposition(), { passive: true });
+  }
+
+  private onHover(target: EventTarget | null): void {
+    if (!(target instanceof Node)) return;
+    if (this.addButton.host.contains(target)) return this.addButton.keep();
+    const el = elementOf(target);
+    const root = el?.closest(SELECTORS.proseRoot);
+    if (!el || !root || isMarginkUi(el) || !parsePullUrl(this.doc.location.href)) return this.addButton.hideSoon();
+    const block = lineBlockAt(el, root);
+    // Between blocks, such as in the margin on the way to the button, it stays.
+    if (!block) return;
+    if (block === this.addButton.target) return this.addButton.keep();
+    this.addButton.show(block, root);
   }
 
   /** The rendered file root for a selection, or null if it is not commentable. */
@@ -95,12 +119,34 @@ export class Controller {
 
   /** Insert an invisible composer beneath the selection and give it focus. */
   armDraft(range: Range): void {
-    const pull = parsePullUrl(this.doc.location.href);
     const root = this.selectionRoot(range);
-    if (!pull || !root) return;
-    this.closeDraft();
+    if (!root) return;
+    const draft = this.openDraft(range, root, false);
+    if (!draft) return;
+    draft.box.arm(draft.quote);
+    insertBeneathLine(range, root, draft.box.host);
+    this.focusDraft(draft);
+  }
 
-    const selectedText = range.toString();
+  /** The add button was clicked: comment on the whole block, starting now. */
+  startBlockDraft(block: Element, root: Element): void {
+    // A composer that already holds text is not replaced; it gets focus back.
+    if (this.draft && !isBlankComment(this.draft.box.body)) {
+      this.draft.box.focus();
+      return;
+    }
+    const draft = this.openDraft(blockRange(block), root, true);
+    if (!draft) return;
+    this.doc.getSelection()?.removeAllRanges();
+    insertAfterBlock(block, root, draft.box.host);
+    this.focusDraft(draft);
+    void this.revealDraft(draft);
+  }
+
+  private openDraft(range: Range, root: Element, wholeBlock: boolean): Draft | null {
+    const pull = parsePullUrl(this.doc.location.href);
+    if (!pull) return null;
+    this.closeDraft();
     const box = new CommentBox(this.doc, {
       chord: DEFAULT_CHORD,
       mac: this.mac,
@@ -111,11 +157,14 @@ export class Controller {
       onReveal: () => void this.revealDraft(draft),
       onDisarm: () => this.closeDraft({ restoreSelection: true }),
     });
-    box.arm(selectedText);
-    insertBeneathLine(range, root, box.host);
-    const draft: Draft = { pull, box, range, root, selectedText, target: null, comparison: null, parent: box.host.parentNode };
+    const draft: Draft = { pull, box, range, root, quote: wholeBlock ? "" : range.toString(), wholeBlock, target: null, comparison: null, parent: null };
     this.draft = draft;
-    box.focus();
+    return draft;
+  }
+
+  private focusDraft(draft: Draft): void {
+    draft.parent = draft.box.host.parentNode;
+    draft.box.focus();
     this.paintHighlights();
   }
 
@@ -125,7 +174,7 @@ export class Controller {
     this.paintHighlights();
     const { box, range, root, pull } = draft;
     try {
-      const side = sideOfRange(range, root);
+      const side = draft.wholeBlock ? sideOfBlock(range, root) : sideOfRange(range, root);
       if (side === "mixed") {
         box.setUnavailable(RESOLVE_MESSAGES["mixed-versions"]);
         return;
@@ -169,7 +218,7 @@ export class Controller {
 
     box.setBusy(true);
     box.showStatus("Posting to GitHub…", "info");
-    const result = await publishComment(draft.pull, comparison, target, buildCommentBody(draft.selectedText, body), this.fetchFn);
+    const result = await publishComment(draft.pull, comparison, target, buildCommentBody(draft.quote, body), this.fetchFn);
     box.setBusy(false);
 
     if (result.state === "published") {
@@ -244,6 +293,10 @@ export class Controller {
 export function viewerAvatarUrl(doc: Document): string | null {
   const login = doc.querySelector<HTMLMetaElement>('meta[name="user-login"]')?.content;
   return login ? `https://github.com/${encodeURIComponent(login)}.png?size=40` : null;
+}
+
+function isMarginkUi(target: EventTarget | null): boolean {
+  return target instanceof Node && elementOf(target)?.closest(`[${UI_ATTRIBUTE}]`) != null;
 }
 
 function elementOf(node: Node): Element | null {

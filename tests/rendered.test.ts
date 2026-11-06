@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { buildSourceIndex } from "../src/lib/normalize";
-import { anchorBlock, renderedSide, sideOfRange } from "../src/lib/rendered";
+import { anchorBlock, blockRange, insertAfterBlock, lineBlockAt, renderedSide, sideOfBlock, sideOfRange } from "../src/lib/rendered";
 import { resolveSelection } from "../src/lib/resolve";
 
 function setup(html: string) {
@@ -63,5 +63,69 @@ describe("rendered diff", () => {
     const root = setup(`<ins><p>Added paragraph.</p></ins><table><tr><td>cell</td></tr></table>`);
     expect(anchorBlock(rangeOver(root, "Added"), root).tagName).toBe("INS");
     expect(anchorBlock(rangeOver(root, "cell"), root).tagName).toBe("TABLE");
+  });
+});
+
+describe("whole-block comments", () => {
+  const source = buildSourceIndex([
+    "# Title",
+    "",
+    "Keep this. New words here.",
+    "",
+    "- First item",
+    "  - Nested item",
+    "",
+    "| a | b |",
+    "| - | - |",
+    "| one | two |",
+  ]);
+
+  function resolveBlock(root: Element, block: Element) {
+    const range = blockRange(block);
+    const side = sideOfBlock(range, root);
+    const r = renderedSide(range, root, side);
+    return { side, ...resolveSelection(r.text, r.start, r.end, source) };
+  }
+
+  it("finds the block under the pointer and skips empty ones", () => {
+    const root = setup(`<ul><li><p>Para in item.</p></li></ul><p><img alt=""></p>`);
+    expect(lineBlockAt(root.querySelector("li p")!, root)?.tagName).toBe("P");
+    expect(lineBlockAt(root.querySelector("img")!, root)).toBeNull();
+  });
+
+  it("comments on the head words of a changed paragraph", () => {
+    const root = setup(`<h1>Title</h1><p>Keep this. <del>Old words here.</del><ins>New words here.</ins></p>`);
+    expect(resolveBlock(root, root.querySelector("p")!)).toEqual({ side: "head", ok: true, startLine: 3, endLine: 3 });
+  });
+
+  it("uses the base version for a fully removed block", () => {
+    const root = setup(`<del><p>Gone.</p></del>`);
+    expect(sideOfBlock(blockRange(root.querySelector("p")!), root)).toBe("base");
+  });
+
+  it("leaves nested lists out of a list item", () => {
+    const root = setup(`<ul><li>First item<ul><li>Nested item</li></ul></li></ul>`);
+    const outer = root.querySelector("li")!;
+    expect(blockRange(outer).toString()).toBe("First item");
+    expect(resolveBlock(root, outer)).toMatchObject({ ok: true, startLine: 5, endLine: 5 });
+    expect(resolveBlock(root, outer.querySelector("li")!)).toMatchObject({ ok: true, startLine: 6, endLine: 6 });
+  });
+
+  it("maps a table row to its source line", () => {
+    const root = setup(`<table><tr><th>a</th><th>b</th></tr><tr><td>one</td><td>two</td></tr></table>`);
+    expect(resolveBlock(root, root.querySelectorAll("tr")[1]!)).toMatchObject({ ok: true, startLine: 10, endLine: 10 });
+  });
+
+  it("places the composer after the block, before a nested list, or after the table", () => {
+    const root = setup(`<ins><p>Added.</p></ins><ul><li>Item<ul><li>Nested</li></ul></li></ul><table><tr><td>c</td></tr></table>`);
+    const a = document.createElement("div");
+    insertAfterBlock(root.querySelector("p")!, root, a);
+    expect(a.previousElementSibling?.tagName).toBe("INS");
+    const b = document.createElement("div");
+    insertAfterBlock(root.querySelector("li")!, root, b);
+    expect(b.nextElementSibling?.tagName).toBe("UL");
+    const c = document.createElement("div");
+    insertAfterBlock(root.querySelector("tr")!, root, c);
+    expect(c.previousElementSibling?.tagName).toBe("TABLE");
   });
 });

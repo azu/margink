@@ -167,7 +167,38 @@ await cdp.send("Input.imeSetComposition", { text: "にほんご", selectionStart
 await cdp.send("Input.insertText", { text: "日本語" });
 assert.equal(await box().locator("textarea").inputValue(), "日本語", "no raw letter is left before the composition");
 assert.equal(await visibleBoxes(), 1);
+
+// 8. Hovering a block shows the add button in the margin; clicking it opens
+//    a visible composer for the whole block, and the comment has no quote.
+await box().locator("textarea").press("Escape");
+const addButton = tab.locator('[data-margink-ui="add-button"] button');
+const longParagraph = tab.locator("p", { hasText: "Use the Node version" });
+await longParagraph.hover();
+await addButton.waitFor({ state: "visible", timeout: 2000 });
+const buttonBox = await addButton.boundingBox();
+const paragraphBox = await longParagraph.boundingBox();
+assert.ok(buttonBox.x + buttonBox.width <= paragraphBox.x, "the button sits left of the text");
+assert.ok(Math.abs(buttonBox.y - paragraphBox.y) < 12, "the button is level with the first line");
+await addButton.click();
+assert.equal(await visibleBoxes(), 1, "the composer is shown at once");
+await assert.doesNotReject(box().locator(".where", { hasText: "lines 9–10 (after the change)" }).waitFor({ timeout: 5000 }));
+assert.equal(await tab.evaluate(() => document.activeElement?.getAttribute("data-margink-ui")), "comment-box", "the composer has focus");
+const postsBefore = posts.length;
+await tab.keyboard.type("Whole paragraph");
+await tab.keyboard.press(`${mod}+Enter`);
+await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Whole paragraph" }).waitFor({ timeout: 5000 });
+assert.equal(posts.length, postsBefore + 1);
+const blockPost = posts.at(-1);
+assert.equal(blockPost.text, "Whole paragraph");
+assert.equal(blockPost.startLine, 9);
+assert.equal(blockPost.line, 10);
+
+await tab.locator("p", { hasText: "Keep this." }).hover();
+await addButton.click();
+await assert.doesNotReject(box().locator(".where", { hasText: "line 3 (after the change)" }).waitFor({ timeout: 5000 }));
 await box().locator("textarea").fill("こういう感じで");
+await tab.locator("p", { hasText: "Repeat me." }).first().hover();
+await addButton.waitFor({ state: "visible", timeout: 2000 });
 
 await tab.screenshot({ path: process.env.SCREENSHOT ?? join(tmpdir(), "margink-e2e.png") });
 if (process.env.SCREENSHOT_DARK) {

@@ -59,7 +59,11 @@ Its qualities are lightness and staying in the reading flow, so the composer is 
   Starting composition or the first input reveals the composer in place, and only then does Margink resolve the source location.
   While nothing is typed, the selection stays highlighted with the page's selection color, copying copies the selected passage, and navigation keys (arrows, Page Up and Down, Home, End, Tab) or shortcuts with Command or Control other than copy close the hidden composer and restore the selection, so the page's own keys keep working.
   An empty composer closes on Escape or on a click elsewhere. A composer that already holds text is not replaced by a new selection.
-- **Placement.** The composer is inserted under the visual line that contains the end of the selection, splitting the rendered paragraph there, and the rest of the paragraph continues below it.
+- **Add button.** Hovering a rendered block (paragraph, heading, list item, table row, code block, or definition) shows a 22px blue "+" button in the file's left margin, level with the block's first line, in the style of the "+" GitHub shows beside a hovered line in a source diff.
+  Clicking it opens the composer, visible and focused, right after the block (inside a list item before its nested list, and after the table for a row), and resolves the whole block to its source lines at once.
+  Both ways of starting stay available: selecting words comments on those words, and the add button comments on the whole block, the rendered counterpart of a line in GitHub's own diff.
+  The button stays briefly when the pointer leaves the block, so it can be reached across the margin, and it hides over Margink's own UI and outside rendered files.
+- **Placement.** For a selection, the composer is inserted under the visual line that contains the end of the selection, splitting the rendered paragraph there, and the rest of the paragraph continues below it.
   When that point is inside a link or other inline markup, the composer goes after that element. In code blocks and tables, or on a block's last line, it goes after the block.
 - **Marking the passage.** Once the composer is revealed, the selected words get a 2px underline in the composer's accent color, drawn with the CSS Custom Highlight API so GitHub's DOM is not wrapped or restyled.
 - **Composer.** A low-contrast card with a 1px border, a slightly raised background, and a 3px accent bar on the left. The reviewer's avatar comes first, and a borderless text area starts at one line and grows with its content.
@@ -96,6 +100,8 @@ Resolution failure keeps the comment box open with the reason (for example "This
 
 GitHub mode publishes immediately, never as a pending review.
 The comment body starts with the selected text as a Markdown quote, followed by a blank line and the reviewer's comment, so readers on GitHub can see which words in the line are meant.
+A comment started from the add button is about the whole block, which GitHub already shows above the comment, so its body is the reviewer's comment without a quote.
+A block resolves like a selection of all its text, except for its version: a block whose text is all deleted uses the version before the change, and any other block uses the version after the change, leaving deleted words out.
 While a request is in flight the box disables confirmation, so repeated shortcuts or clicks do not start a second request.
 A response is classified as success, a known failure (signed out, no permission, target gone, rejected location), or unknown (network error or timeout); unknown failures say that the comment may have been published and link to the pull request instead of retrying automatically, because a retry could duplicate the comment.
 

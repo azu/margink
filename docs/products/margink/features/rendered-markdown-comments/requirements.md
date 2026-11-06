@@ -44,6 +44,12 @@ Scenario: When an unchanged passage is selected, it remains a valid comment targ
 - When: The reviewer selects that passage and confirms a comment in GitHub mode.
 - Then: A line comment is published at the corresponding location; the extension does not restrict commenting to added or deleted words.
 
+Scenario: When the reviewer starts a comment on a whole block, it refers to that block's source lines
+
+- Given: A rendered diff shows a paragraph, heading, list item, table row, or code block, and GitHub permits a line comment at its corresponding source lines.
+- When: The reviewer starts a comment on that block from beside it, as GitHub's source diff offers beside a line, without selecting text, and confirms the comment in GitHub mode.
+- Then: A line comment is published on the source lines of that block in one version; a block that mixes deleted and added words is commented on in the version after the change.
+
 Scenario: When a selection cannot be published as a line comment, the text is retained
 
 - Given: The selection combines incompatible document versions, has no reliably identified source location, or refers to a location GitHub does not accept.

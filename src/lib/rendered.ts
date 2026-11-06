@@ -119,14 +119,66 @@ export function anchorBlock(range: Range, root: Element): Element {
   const el = end.nodeType === Node.ELEMENT_NODE ? (end as Element) : end.parentElement!;
   let block = el.closest(BLOCKS);
   if (!block || !root.contains(block)) block = el;
-  if (block.tagName === "TD" || block.tagName === "TH" || block.closest("table")) {
-    block = block.closest("table") ?? block;
-  }
+  return outsideWrappers(block.closest("table") ?? block, root);
+}
+
+/** The outermost insertion or deletion wrapper around `block`, or the block itself. */
+function outsideWrappers(block: Element, root: Element): Element {
   let outer: Element = block;
   for (let p = block.parentElement; p && p !== root; p = p.parentElement) {
     if (p.matches("ins, del, u, .added, .removed")) outer = p;
   }
   return outer;
+}
+
+/**
+ * Rendered blocks that the add button comments on as a whole, the rendered
+ * counterpart of a line in GitHub's source diff. Paragraphs inside list
+ * items and quotes are their own blocks, and a table row is one block.
+ */
+export const LINE_BLOCKS = "p, h1, h2, h3, h4, h5, h6, li, pre, tr, dt, dd";
+
+/** The commentable block under `el`, or null. */
+export function lineBlockAt(el: Element, root: Element): Element | null {
+  const block = el.closest(LINE_BLOCKS);
+  if (!block || !root.contains(block) || block.closest(SELECTORS.skipped)) return null;
+  return blockRange(block).toString().trim() ? block : null;
+}
+
+/** The text of a block, without the nested lists of a list item. */
+export function blockRange(block: Element): Range {
+  const range = block.ownerDocument.createRange();
+  range.selectNodeContents(block);
+  if (block.tagName === "LI") {
+    const nested = block.querySelector(":scope > ul, :scope > ol");
+    if (nested) range.setEndBefore(nested);
+  }
+  return range;
+}
+
+/**
+ * The version a whole block is commented on: the base version when all of
+ * its text was removed, otherwise the head version. In a paragraph with
+ * both removed and added words, the removed words are left out.
+ */
+export function sideOfBlock(range: Range, root: Element): Side {
+  const nodes = textNodesInRange(range, root);
+  return nodes.length > 0 && nodes.every((t) => isRemoved(t, root)) ? "base" : "head";
+}
+
+/**
+ * Insert `host` right after a block commented on as a whole: inside a list
+ * item before its nested list, after the table for a table row, and outside
+ * insertion and deletion wrappers otherwise.
+ */
+export function insertAfterBlock(block: Element, root: Element, host: Element): void {
+  if (block.tagName === "LI") {
+    const nested = block.querySelector(":scope > ul, :scope > ol");
+    if (nested) nested.before(host);
+    else block.append(host);
+    return;
+  }
+  outsideWrappers(block.closest("table") ?? block, root).after(host);
 }
 
 /** Blocks whose lines are not split by an inline comment. */
