@@ -4,7 +4,7 @@ import { blockRange, insertAfterBlock, insertBeneathLine, lineBlockAt, renderedS
 import { RESOLVE_MESSAGES, resolveSelection } from "../lib/resolve";
 import { DEFAULT_CHORD, isMacPlatform } from "../lib/shortcut";
 import { loadComparison, sha256Hex, type Comparison, type FetchLike } from "../github/comparison";
-import { publishComment, type LineTarget } from "../github/publish";
+import { publishComment, type Delivery, type LineTarget } from "../github/publish";
 import { parsePullUrl, pullPath, type PullRef } from "../github/pull";
 import { loadSourceLines } from "../github/source";
 import { AddButton } from "./add-button";
@@ -178,7 +178,7 @@ export class Controller {
       mac: this.mac,
       destination: "Post to GitHub",
       avatarUrl: viewerAvatarUrl(this.doc),
-      onConfirm: (body) => void this.confirm(body),
+      onConfirm: (body, delivery) => void this.confirm(body, delivery),
       onCancel: () => this.closeDraft(),
       onReveal: () => void this.revealDraft(draft),
       onDisarm: () => this.closeDraft({ restoreSelection: !wholeBlock }),
@@ -228,7 +228,7 @@ export class Controller {
     }
   }
 
-  private async confirm(body: string): Promise<void> {
+  private async confirm(body: string, delivery: Delivery): Promise<void> {
     const draft = this.draft;
     if (!draft) return;
     const { box, target, comparison } = draft;
@@ -243,13 +243,15 @@ export class Controller {
     }
 
     box.setBusy(true);
-    box.showStatus("Posting to GitHub…", "info");
-    const result = await publishComment(draft.pull, comparison, target, buildCommentBody(draft.quote, body), this.fetchFn);
+    box.showStatus(delivery === "publish" ? "Posting to GitHub…" : "Adding to your review…", "info");
+    const result = await publishComment(draft.pull, comparison, target, buildCommentBody(draft.quote, body), this.fetchFn, delivery);
     box.setBusy(false);
 
     if (result.state === "published") {
       // The composer stays where it is and becomes the finished comment.
-      box.showPosted(body, describeTarget(target), result.url ?? `${pullPath(draft.pull)}/files`);
+      // A pending comment is submitted from GitHub's own review control on the files page.
+      const href = delivery === "publish" ? (result.url ?? `${pullPath(draft.pull)}/files`) : `${pullPath(draft.pull)}/files`;
+      box.showPosted(body, describeTarget(target), href, delivery);
       this.posted.push(draft.range);
       this.draft = null;
       this.paintHighlights();

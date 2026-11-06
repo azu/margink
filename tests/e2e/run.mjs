@@ -226,6 +226,22 @@ assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0, "S
 assert.ok(await tab.evaluate(() => scrollY) > 0, "Space scrolls the page");
 await tab.evaluate(() => scrollTo(0, 0));
 
+// 10. The confirm chord with Shift adds the comment to the pending review
+//     instead of publishing it.
+await heading.click();
+await tab.waitForTimeout(50);
+await tab.keyboard.type("Pending note");
+await assert.doesNotReject(box().locator(".where", { hasText: "line 1 (after the change)" }).waitFor({ timeout: 5000 }));
+assert.match(await box().locator(".review").innerText(), /^Add to review /);
+const beforeReview = posts.length;
+await tab.keyboard.press(`${mod}+Shift+Enter`);
+await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Pending note" }).waitFor({ timeout: 5000 });
+assert.equal(posts.length, beforeReview + 1);
+assert.equal(posts.at(-1).submitBatch, false, "the comment stays in the pending review");
+assert.equal(posts.at(-1).text, "Pending note");
+assert.match(await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Pending note" }).locator(".where").innerText(), /Added to your review \(pending\)/);
+assert.equal(posts.filter((p) => p.submitBatch === true).length, beforeReview, "earlier comments were published immediately");
+
 await select("pnpm");
 await tab.keyboard.type("こういう感じで");
 await tab.locator("p", { hasText: "Repeat me." }).first().hover();

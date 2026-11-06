@@ -10,11 +10,15 @@ export interface LineTarget {
   endLine: number;
 }
 
+/** Publish the comment now, or add it to the reviewer's pending review. */
+export type Delivery = "publish" | "review";
+
 /**
  * Build the request body GitHub's own source-diff UI sends when it creates a
- * review comment that is published immediately.
+ * review comment. `submitBatch` is true for "Add single comment" and false
+ * for a comment kept in the pending review ("Start a review").
  */
-export function buildCreateCommentBody(comparison: Comparison, target: LineTarget, text: string): Record<string, unknown> {
+export function buildCreateCommentBody(comparison: Comparison, target: LineTarget, text: string, delivery: Delivery = "publish"): Record<string, unknown> {
   const { baseOid, headOid } = comparison;
   const side = target.side === "base" ? "left" : "right";
   const commitOid = target.side === "base" ? baseOid : headOid;
@@ -24,7 +28,7 @@ export function buildCreateCommentBody(comparison: Comparison, target: LineTarge
     path: target.path,
     line: target.endLine,
     side,
-    submitBatch: true,
+    submitBatch: delivery === "publish",
     text,
   };
 
@@ -117,6 +121,7 @@ export async function publishComment(
   target: LineTarget,
   text: string,
   fetchFn: FetchLike,
+  delivery: Delivery = "publish",
 ): Promise<PublishResult> {
   let res: Response;
   try {
@@ -124,7 +129,7 @@ export async function publishComment(
       method: "POST",
       credentials: "same-origin",
       headers: { ...PAGE_HEADERS, "Content-Type": "application/json" },
-      body: JSON.stringify(buildCreateCommentBody(comparison, target, text)),
+      body: JSON.stringify(buildCreateCommentBody(comparison, target, text, delivery)),
     });
   } catch {
     return { state: "unknown", reason: "The connection to GitHub failed. The comment may have been published; check the pull request before trying again." };

@@ -52,6 +52,11 @@ describe("create review comment body", () => {
     expect(body.positioning).toMatchObject({ type: "line", commitOid: head, line: 4, path: "a.md" });
   });
 
+  it("keeps a comment added to the review out of the immediate batch", () => {
+    const body = buildCreateCommentBody(comparison, { path: "a.md", side: "head", startLine: 4, endLine: 4 }, "hi", "review");
+    expect(body.submitBatch).toBe(false);
+  });
+
   it("uses the base commit and left side for removed text", () => {
     const body = buildCreateCommentBody(comparison, { path: "a.md", side: "base", startLine: 7, endLine: 7 }, "hi");
     expect(body).toMatchObject({ side: "left", line: 7 });

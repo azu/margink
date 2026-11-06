@@ -1,4 +1,5 @@
-import { describeChord, keyAction, type ConfirmChord } from "../lib/shortcut";
+import { describeChord, hasReviewChord, keyAction, reviewChord, type ConfirmChord } from "../lib/shortcut";
+import type { Delivery } from "../github/publish";
 
 export const UI_ATTRIBUTE = "data-margink-ui";
 
@@ -20,12 +21,16 @@ const STYLE = `
 .card::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; border-radius: 6px 0 0 6px; background: var(--margink-bar); }
 .card[data-state="draft"] { --margink-bar: var(--margink-accent, #8250df); }
 .card[data-state="posted"] { --margink-bar: transparent; }
+.card[data-pending] { border-style: dashed; }
 .main { display: flex; align-items: flex-start; gap: 10px; }
 .avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; margin-top: 2px; background: var(--bgColor-neutral-muted, #818b981f); }
 textarea { flex: 1; box-sizing: border-box; min-height: 24px; max-height: 50vh; resize: none; overflow-y: auto; font: inherit; padding: 0; margin: 0; border: 0; outline: none; background: transparent; color: inherit; caret-color: var(--fgColor-accent, #0969da); }
 textarea::placeholder { color: var(--fgColor-muted, #59636e); }
 textarea[readonly] { opacity: .6; }
-.send { flex: none; align-self: flex-end; border: 0; padding: 0 2px; background: none; font: inherit; font-size: 12px; line-height: 24px; color: var(--fgColor-muted, #59636e); cursor: pointer; white-space: nowrap; }
+.footer { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; margin: 2px 0 0 30px; }
+.footer .where { flex: 1 1 14em; margin: 0; }
+.actions { flex: none; margin-left: auto; display: flex; gap: 12px; }
+.send { flex: none; border: 0; padding: 0 2px; background: none; font: inherit; font-size: 12px; line-height: 24px; color: var(--fgColor-muted, #59636e); cursor: pointer; white-space: nowrap; }
 .send:hover:not(:disabled) { color: var(--fgColor-accent, #0969da); }
 .send:disabled { opacity: .5; cursor: default; }
 .text { flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -49,7 +54,7 @@ export interface CommentBoxOptions {
   destination: string;
   /** The signed-in reviewer's avatar, shown like a comment's author. */
   avatarUrl?: string | null;
-  onConfirm(body: string): void;
+  onConfirm(body: string, delivery: Delivery): void;
   onCancel(): void;
   /** Called once when the reviewer starts typing in an armed composer. */
   onReveal?(): void;
@@ -66,6 +71,7 @@ export class CommentBox {
   private readonly targetLabel: HTMLElement;
   private readonly status: HTMLElement;
   private readonly confirmButton: HTMLButtonElement;
+  private readonly reviewButton: HTMLButtonElement;
   private busy = false;
   private ready = false;
   private armed = false;
@@ -79,9 +85,14 @@ export class CommentBox {
         <div class="main">
           <img class="avatar" alt="">
           <textarea rows="1" aria-label="Comment"></textarea>
-          <button type="button" class="send confirm" disabled></button>
         </div>
-        <div class="where">Locating the selected text…</div>
+        <div class="footer">
+          <div class="where">Locating the selected text…</div>
+          <span class="actions">
+            <button type="button" class="send review" disabled></button>
+            <button type="button" class="send confirm" disabled></button>
+          </span>
+        </div>
         <div class="status" role="status" aria-live="polite"></div>
       </div>`;
     this.card = this.shadow.querySelector(".card")!;
@@ -89,10 +100,16 @@ export class CommentBox {
     this.targetLabel = this.shadow.querySelector(".where")!;
     this.status = this.shadow.querySelector(".status")!;
     this.confirmButton = this.shadow.querySelector(".confirm")!;
+    this.reviewButton = this.shadow.querySelector(".review")!;
 
     const chord = describeChord(options.chord, options.mac);
     this.confirmButton.textContent = `${options.destination} ${chord}`;
     this.confirmButton.title = `${options.destination} (${chord})`;
+    const review = hasReviewChord(options.chord) ? describeChord(reviewChord(options.chord), options.mac) : "";
+    this.reviewButton.textContent = review ? `Add to review ${review}` : "Add to review";
+    this.reviewButton.title = review
+      ? `Add to your pending review; submit it in GitHub (${review})`
+      : "Add to your pending review; submit it in GitHub";
     this.textarea.placeholder = "Comment";
     const avatar = this.shadow.querySelector<HTMLImageElement>(".avatar")!;
     // A missing avatar leaves the neutral circle instead of a broken image.
@@ -101,7 +118,8 @@ export class CommentBox {
     }, { once: true });
     if (options.avatarUrl) avatar.src = options.avatarUrl;
 
-    this.confirmButton.addEventListener("click", () => this.confirm());
+    this.confirmButton.addEventListener("click", () => this.confirm("publish"));
+    this.reviewButton.addEventListener("click", () => this.confirm("review"));
     // Typing or IME composition in an armed composer reveals it in place.
     // The text area keeps focus, so the composition continues uninterrupted.
     this.textarea.addEventListener("compositionstart", () => this.reveal());
@@ -125,9 +143,10 @@ export class CommentBox {
         return;
       }
       // "newline" and "none" keep the textarea's default behavior.
-      if (keyAction(event, options.chord, options.mac) === "confirm") {
+      const action = keyAction(event, options.chord, options.mac);
+      if (action === "confirm" || action === "review") {
         event.preventDefault();
-        this.confirm();
+        this.confirm(action === "confirm" ? "publish" : "review");
       }
     });
     this.textarea.addEventListener("keyup", (e) => e.stopPropagation());
@@ -211,7 +230,7 @@ export class CommentBox {
    * Turn the composer into the finished comment: the same card without the
    * accent bar, the comment text, and a link to it on GitHub.
    */
-  showPosted(body: string, location: string, href: string): void {
+  showPosted(body: string, location: string, href: string, delivery: Delivery = "publish"): void {
     const doc = this.host.ownerDocument;
     this.card.dataset.state = "posted";
     this.card.setAttribute("aria-label", "Margink comment, posted");
@@ -219,14 +238,17 @@ export class CommentBox {
     text.className = "text";
     text.textContent = body.trim();
     this.textarea.replaceWith(text);
-    this.confirmButton.remove();
+    this.confirmButton.parentElement?.remove();
     this.status.textContent = "";
     this.targetLabel.textContent = "";
     const link = doc.createElement("a");
     link.href = href;
     link.target = "_blank";
     link.rel = "noopener";
-    link.textContent = `Posted on GitHub · ${location}`;
+    link.textContent = delivery === "publish"
+      ? `Posted on GitHub · ${location}`
+      : `Added to your review (pending) · ${location} · Submit it on GitHub`;
+    if (delivery === "review") this.card.dataset.pending = "";
     this.targetLabel.append(link);
     this.host.setAttribute(UI_ATTRIBUTE, "posted-comment");
   }
@@ -238,11 +260,12 @@ export class CommentBox {
 
   private refreshButton(): void {
     this.confirmButton.disabled = this.busy || !this.ready;
+    this.reviewButton.disabled = this.confirmButton.disabled;
   }
 
-  private confirm(): void {
+  private confirm(delivery: Delivery): void {
     if (this.busy || !this.ready) return;
-    this.options.onConfirm(this.textarea.value);
+    this.options.onConfirm(this.textarea.value, delivery);
   }
 }
 
