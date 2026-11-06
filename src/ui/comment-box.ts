@@ -22,6 +22,7 @@ const STYLE = `
 .card[data-state="draft"] { --margink-bar: var(--margink-accent, #8250df); }
 .card[data-state="posted"] { --margink-bar: transparent; }
 .card[data-pending] { border-style: dashed; }
+.card[data-state="posted"][data-editing] { --margink-bar: var(--margink-accent, #8250df); }
 .main { display: flex; align-items: flex-start; gap: 10px; }
 .avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; margin-top: 2px; background: var(--bgColor-neutral-muted, #818b981f); }
 textarea { flex: 1; box-sizing: border-box; min-height: 24px; max-height: 50vh; resize: none; overflow-y: auto; font: inherit; padding: 0; margin: 0; border: 0; outline: none; background: transparent; color: inherit; caret-color: var(--fgColor-accent, #0969da); }
@@ -62,6 +63,12 @@ export interface CommentBoxOptions {
   onDisarm?(): void;
 }
 
+/** What a posted comment can do: save an edited text or delete itself. */
+export interface PostedActions {
+  onUpdate(text: string): void;
+  onDelete(): void;
+}
+
 /** The inline comment composer. It renders inside a shadow root. */
 export class CommentBox {
   readonly host: HTMLElement;
@@ -75,6 +82,8 @@ export class CommentBox {
   private busy = false;
   private ready = false;
   private armed = false;
+  /** Set once the comment is posted and can be edited in place. */
+  private posted: { actions: PostedActions; saved: string; deleteButton: HTMLButtonElement } | null = null;
 
   constructor(doc: Document, private readonly options: CommentBoxOptions) {
     this.host = doc.createElement("div");
@@ -127,10 +136,12 @@ export class CommentBox {
     this.textarea.addEventListener("beforeinput", () => this.reveal());
     this.textarea.addEventListener("input", () => {
       this.autosize();
+      if (this.posted) return this.refreshEditing();
       if (this.status.dataset.kind === "error" && this.ready) this.showStatus("", "info");
     });
     this.textarea.addEventListener("keydown", (event) => {
       event.stopPropagation(); // Keep GitHub's page shortcuts away from the composer.
+      if (this.posted) return this.onPostedKey(event);
       if (this.armed && isPageKey(event)) {
         // Navigation keys belong to the page while nothing is typed. Moving
         // focus away during the keydown lets the page scroll as usual.
@@ -212,6 +223,7 @@ export class CommentBox {
   setBusy(busy: boolean): void {
     this.busy = busy;
     this.textarea.readOnly = busy;
+    if (this.posted) this.posted.deleteButton.disabled = busy;
     this.refreshButton();
   }
 
@@ -230,17 +242,41 @@ export class CommentBox {
 
   /**
    * Turn the composer into the finished comment: the same card without the
-   * accent bar, the comment text, and a link to it on GitHub.
+   * accent bar, the comment text, and a link to it on GitHub. With `actions`,
+   * the text stays editable in place: put the cursor in it, change it, and
+   * confirm to save, or press Escape to undo; a Delete control removes it.
    */
-  showPosted(body: string, location: string, href: string, delivery: Delivery = "publish", title = location): void {
+  showPosted(body: string, location: string, href: string, delivery: Delivery = "publish", title = location, actions?: PostedActions): void {
     const doc = this.host.ownerDocument;
     this.card.dataset.state = "posted";
     this.card.setAttribute("aria-label", "Margink comment, posted");
-    const text = doc.createElement("div");
-    text.className = "text";
-    text.textContent = body.trim();
-    this.textarea.replaceWith(text);
-    this.publishButton.parentElement?.remove();
+    const buttons = this.publishButton.parentElement!;
+    if (actions) {
+      const saved = body.trim();
+      this.textarea.classList.add("text");
+      this.textarea.setAttribute("aria-label", "Comment; edit it and confirm to save");
+      // The saved text is also the default value, so it is the card's text
+      // content (what the page's find and text queries see) and what a form
+      // reset would restore.
+      this.textarea.defaultValue = saved;
+      this.body = saved;
+      const deleteButton = doc.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "send delete";
+      deleteButton.textContent = "Delete";
+      deleteButton.title = "Delete this comment on GitHub";
+      deleteButton.addEventListener("click", () => {
+        if (!this.busy) actions.onDelete();
+      });
+      buttons.replaceChildren(deleteButton);
+      this.posted = { actions, saved, deleteButton };
+    } else {
+      const text = doc.createElement("div");
+      text.className = "text";
+      text.textContent = body.trim();
+      this.textarea.replaceWith(text);
+      buttons.remove();
+    }
     this.status.textContent = "";
     this.targetLabel.textContent = "";
     const link = doc.createElement("a");
@@ -253,6 +289,48 @@ export class CommentBox {
     if (delivery === "review") this.card.dataset.pending = "";
     this.targetLabel.append(link);
     this.host.setAttribute(UI_ATTRIBUTE, "posted-comment");
+  }
+
+  /** The edited text was saved on GitHub. */
+  markSaved(text: string): void {
+    if (!this.posted) return;
+    this.posted.saved = text;
+    this.textarea.defaultValue = text;
+    this.refreshEditing();
+  }
+
+  private get editing(): boolean {
+    return this.posted !== null && this.textarea.value !== this.posted.saved;
+  }
+
+  private refreshEditing(): void {
+    if (!this.posted) return;
+    if (this.editing) {
+      this.card.dataset.editing = "";
+      const save = describeChord(this.options.chord, this.options.mac);
+      this.showStatus(`Edited · ${save} to save, Esc to undo`, "info");
+    } else {
+      delete this.card.dataset.editing;
+      if (this.status.dataset.kind !== "error") this.showStatus("", "info");
+    }
+  }
+
+  private onPostedKey(event: KeyboardEvent): void {
+    if (!this.posted || event.isComposing) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.body = this.posted.saved;
+      this.showStatus("", "info");
+      this.refreshEditing();
+      this.textarea.blur();
+      return;
+    }
+    const action = keyAction(event, this.options.chord, this.options.mac);
+    if (action !== "confirm" && action !== "alternate") return;
+    // Either chord saves: an edit keeps the comment where it already is.
+    event.preventDefault();
+    if (this.busy || !this.editing) return;
+    this.posted.actions.onUpdate(this.textarea.value);
   }
 
   private autosize(): void {

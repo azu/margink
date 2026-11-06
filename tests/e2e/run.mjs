@@ -46,6 +46,8 @@ const page = `<!doctype html><html><head><title>PR</title><meta name="user-login
 </body></html>`;
 
 const posts = [];
+const edits = [];
+const deletes = [];
 const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "margink-")), {
   channel: "chromium",
   headless: true,
@@ -67,7 +69,16 @@ await context.route("https://github.com/**", async (route) => {
   if (url.pathname === "/o/r/pull/1/page_data/create_review_comment" && req.method() === "POST") {
     posts.push(JSON.parse(req.postData()));
     await new Promise((r) => setTimeout(r, 300));
-    return route.fulfill({ json: { thread: { commentsData: { comments: [{ url: "https://github.com/o/r/pull/1#discussion_r1" }] } } } });
+    return route.fulfill({ json: { thread: { commentsData: { comments: [{ databaseId: posts.length, bodyVersion: "v1", url: `https://github.com/o/r/pull/1#discussion_r${posts.length}` }] } } } });
+  }
+  if (url.pathname === "/o/r/pull/1/page_data/update_review_comment" && req.method() === "PUT") {
+    edits.push({ query: url.search, body: JSON.parse(req.postData()) });
+    return route.fulfill({ json: { bodyVersion: "v2" } });
+  }
+  const del = /^\/o\/r\/pull\/1\/page_data\/review_comments\/(\d+)$/.exec(url.pathname);
+  if (del && req.method() === "DELETE") {
+    deletes.push(del[1]);
+    return route.fulfill({ status: 204, body: "" });
   }
   return route.fulfill({ status: 404, body: "" });
 });
@@ -137,7 +148,25 @@ assert.equal(posts[0].line, 3);
 assert.equal(posts[0].positioning.commitOid, base);
 assert.equal(posts[0].text, "> Old words\n\nWhy remove this?");
 assert.equal(await box().count(), 0, "the composer becomes the posted comment");
-assert.match(await tab.locator('[data-margink-ui="posted-comment"] .text').innerText(), /Why remove this\?/);
+assert.match(await tab.locator('[data-margink-ui="posted-comment"] .text').inputValue(), /Why remove this\?/);
+
+// 1b. The posted comment is edited in place: put the cursor in it, type, and
+//     confirm to save. Escape undoes an unsaved edit.
+const postedText = tab.locator('[data-margink-ui="posted-comment"] .text').first();
+await postedText.click();
+await tab.keyboard.press("End");
+await tab.keyboard.type(" Typo");
+await tab.keyboard.press("Escape");
+assert.equal(await postedText.inputValue(), "Why remove this?", "Escape undoes the edit");
+await postedText.click();
+await tab.keyboard.press("End");
+await tab.keyboard.type(" It is still used.");
+assert.equal(edits.length, 0);
+await tab.keyboard.press(`${mod}+Enter`);
+await tab.waitForFunction(() => document.querySelector('[data-margink-ui="posted-comment"]')?.shadowRoot?.querySelector(".card")?.hasAttribute("data-editing") === false);
+assert.equal(edits.length, 1);
+assert.deepEqual(edits[0], { query: "?body_version=v1", body: { body: "> Old words\n\nWhy remove this? It is still used.", commentId: "1" } });
+assert.equal(posts.length, 1, "editing does not post a new comment");
 
 // 2. The second "Repeat me." maps to head line 7.
 await startComment("Repeat me.", 1);
@@ -325,6 +354,16 @@ await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Second draft
 assert.equal(posts.length, beforeMulti + 1);
 assert.match(posts.at(-1).text, /Second draft$/);
 assert.equal(await box().locator("textarea").inputValue(), "First draft", "the other composer keeps its text");
+//     A posted comment can be deleted after confirming.
+const second = tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Second draft" });
+const secondId = String(posts.length);
+tab.once("dialog", (dialog) => dialog.dismiss());
+await second.locator(".delete").click();
+assert.equal(deletes.length, 0, "dismissing the confirmation keeps the comment");
+tab.once("dialog", (dialog) => dialog.accept());
+await second.locator(".delete").click();
+await second.waitFor({ state: "detached", timeout: 5000 });
+assert.deepEqual(deletes, [secondId]);
 //     An empty composer still gives way to the next one.
 await box().locator("textarea").fill("");
 await select("pnpm");

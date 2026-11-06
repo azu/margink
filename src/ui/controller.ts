@@ -5,7 +5,7 @@ import { blockRange, insertAfterBlock, insertBeneathLine, lineBlockAt, renderedS
 import { RESOLVE_MESSAGES, resolveSelection } from "../lib/resolve";
 import { DEFAULT_CHORD, isMacPlatform } from "../lib/shortcut";
 import { loadComparison, sha256Hex, type Comparison, type FetchLike } from "../github/comparison";
-import { publishComment, type Delivery, type LineTarget } from "../github/publish";
+import { deleteComment, publishComment, updateComment, type Delivery, type LineTarget, type PostedComment } from "../github/publish";
 import { parsePullUrl, pullPath, type PullRef } from "../github/pull";
 import { loadSourceLines } from "../github/source";
 import { AddButton } from "./add-button";
@@ -322,7 +322,12 @@ export class Controller {
       // The composer stays where it is and becomes the finished comment.
       // A pending comment is submitted from GitHub's own review control on the files page.
       const href = delivery === "publish" ? (result.url ?? `${pullPath(draft.pull)}/files`) : `${pullPath(draft.pull)}/files`;
-      box.showPosted(body, shortTarget(target), href, delivery, describeTarget(target));
+      // Without the new comment's ID, it can only be changed on GitHub.
+      const comment = result.comment;
+      const actions = comment
+        ? { onUpdate: (text: string) => void this.updatePosted(draft, comment, text), onDelete: () => void this.deletePosted(draft, comment) }
+        : undefined;
+      box.showPosted(body, shortTarget(target), href, delivery, describeTarget(target), actions);
       this.posted.push(draft.range);
       this.drafts.delete(draft);
       if (this.draft === draft) this.draft = null;
@@ -334,6 +339,46 @@ export class Controller {
       return;
     }
     box.showStatus(result.reason, "error");
+  }
+
+  /** Save an edited posted comment, keeping its quotation. */
+  private async updatePosted(draft: Draft, comment: PostedComment, text: string): Promise<void> {
+    const { box } = draft;
+    if (isBlankComment(text)) {
+      box.showStatus("Write a comment, or use Delete to remove it.", "error");
+      return;
+    }
+    box.setBusy(true);
+    box.showStatus("Saving…", "info");
+    const result = await updateComment(draft.pull, comment, buildCommentBody(draft.quote, text), this.fetchFn);
+    box.setBusy(false);
+    if (result.state === "done") {
+      if (result.bodyVersion) comment.bodyVersion = result.bodyVersion;
+      box.markSaved(text);
+      return;
+    }
+    box.showStatus(result.reason, "error", result.state === "unknown" ? { href: `${pullPath(draft.pull)}/files`, text: "Open the pull request" } : undefined);
+  }
+
+  /** Delete a posted comment on GitHub and remove its card. */
+  private async deletePosted(draft: Draft, comment: PostedComment): Promise<void> {
+    const { box } = draft;
+    const view = this.doc.defaultView;
+    if (view && !view.confirm("Delete this comment on GitHub?")) return;
+    box.setBusy(true);
+    box.showStatus("Deleting…", "info");
+    const result = await deleteComment(draft.pull, comment, this.fetchFn);
+    box.setBusy(false);
+    if (result.state !== "done") {
+      box.showStatus(result.reason, "error", result.state === "unknown" ? { href: `${pullPath(draft.pull)}/files`, text: "Open the pull request" } : undefined);
+      return;
+    }
+    if (draft.codeRow) draft.codeRow.remove();
+    else box.host.remove();
+    draft.parent?.normalize();
+    const index = this.posted.indexOf(draft.range);
+    if (index >= 0) this.posted.splice(index, 1);
+    this.paintHighlights();
   }
 
   private closeDraft(draft: Draft, options: { restoreSelection?: boolean } = {}): void {

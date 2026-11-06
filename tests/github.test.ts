@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseComparison, sha256Hex } from "../src/github/comparison";
-import { buildCreateCommentBody, classifyResponse } from "../src/github/publish";
+import { buildCreateCommentBody, classifyResponse, deleteComment, findPostedComment, updateComment } from "../src/github/publish";
 import { parsePullUrl } from "../src/github/pull";
 import { linesFromBlobHtml } from "../src/github/source";
 
@@ -75,7 +75,7 @@ describe("response classification", () => {
 
   it("returns the comment URL on success", async () => {
     const res = json(200, { thread: { commentsData: { comments: [{ url: "https://github.com/o/r/pull/1#discussion_r42" }] } } });
-    expect(await classifyResponse(res)).toEqual({ state: "published", url: "https://github.com/o/r/pull/1#discussion_r42" });
+    expect(await classifyResponse(res)).toEqual({ state: "published", url: "https://github.com/o/r/pull/1#discussion_r42", comment: { id: "42", bodyVersion: null } });
   });
 
   it("explains rejected locations without claiming success", async () => {
@@ -93,5 +93,44 @@ describe("response classification", () => {
   it("treats server errors and unreadable success as unknown", async () => {
     expect((await classifyResponse(json(502, {}))).state).toBe("unknown");
     expect((await classifyResponse(new Response("<html>", { status: 200 }))).state).toBe("unknown");
+  });
+});
+
+describe("editing and deleting a posted comment", () => {
+  const pull = { owner: "o", repo: "r", number: 1 };
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+  it("finds the comment's ID and body version, not the pull request's", () => {
+    const answer = { pullRequest: { databaseId: 7 }, thread: { commentsData: { comments: [{ databaseId: 42, bodyVersion: "abc", url: "https://github.com/o/r/pull/1#discussion_r42" }] } } };
+    expect(findPostedComment(answer)).toEqual({ id: "42", bodyVersion: "abc" });
+    expect(findPostedComment({ pullRequest: { databaseId: 7 } })).toBeNull();
+  });
+
+  it("sends the new body with the body version", async () => {
+    const calls: [string, RequestInit | undefined][] = [];
+    const result = await updateComment(pull, { id: "42", bodyVersion: "a b" }, "new", async (url, init) => {
+      calls.push([url, init]);
+      return json(200, { bodyVersion: "next" });
+    });
+    expect(result).toEqual({ state: "done", bodyVersion: "next" });
+    expect(calls[0]![0]).toBe("/o/r/pull/1/page_data/update_review_comment?body_version=a%20b");
+    expect(calls[0]![1]!.method).toBe("PUT");
+    expect(JSON.parse(String(calls[0]![1]!.body))).toEqual({ body: "new", commentId: "42" });
+  });
+
+  it("deletes by ID and accepts an empty answer", async () => {
+    const calls: [string, RequestInit | undefined][] = [];
+    const result = await deleteComment(pull, { id: "42", bodyVersion: null }, async (url, init) => {
+      calls.push([url, init]);
+      return new Response(null, { status: 204 });
+    });
+    expect(result).toEqual({ state: "done", bodyVersion: null });
+    expect(calls[0]![0]).toBe("/o/r/pull/1/page_data/review_comments/42");
+    expect(calls[0]![1]!.method).toBe("DELETE");
+  });
+
+  it("does not claim success when GitHub refuses", async () => {
+    expect((await deleteComment(pull, { id: "1", bodyVersion: null }, async () => json(403, {}))).state).toBe("failed");
+    expect((await updateComment(pull, { id: "1", bodyVersion: null }, "x", async () => json(502, {}))).state).toBe("unknown");
   });
 });
