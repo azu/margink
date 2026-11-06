@@ -31,7 +31,7 @@ Reviewers want to comment on Markdown while reading its rendered headings, parag
 ### Comment in the context being read
 
 - **Recipient:** Reviewers of Markdown documents.
-- **Offering:** Select a rendered passage, compose feedback near it, and continue reading after completing the comment.
+- **Offering:** Select a rendered passage, compose feedback near it, and continue reading after completing the comment. The same select-and-type flow also works in the pull request's ordinary source diffs, so reviewers do not switch habits between prose and code.
 - **Reason:** The visible document provides the context for the reviewer's feedback.
 
 ### Deliver feedback through the reviewer's chosen channel

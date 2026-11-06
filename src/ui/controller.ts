@@ -1,4 +1,5 @@
 import { buildCommentBody, isBlankComment } from "../lib/comment-body";
+import { codeTableOf, CODE_SELECTORS, insertCodeRow, resolveCodeRange, setCodeRowCollapsed } from "../lib/code-diff";
 import { buildSourceIndex, type SourceIndex } from "../lib/normalize";
 import { blockRange, insertAfterBlock, insertBeneathLine, lineBlockAt, renderedSide, SELECTORS, sideOfBlock, sideOfRange } from "../lib/rendered";
 import { RESOLVE_MESSAGES, resolveSelection } from "../lib/resolve";
@@ -35,6 +36,8 @@ interface Draft {
   quote: string;
   /** Whether the comment is on a whole block from the add button. */
   wholeBlock: boolean;
+  /** For a comment on a source diff, the table row that holds the composer. */
+  codeRow: HTMLTableRowElement | null;
   target: LineTarget | null;
   comparison: Comparison | null;
   root: Element;
@@ -110,6 +113,14 @@ export class Controller {
     return start;
   }
 
+  /** The source diff table for a selection, or null if it is not one. */
+  private codeRoot(range: Range): Element | null {
+    const table = codeTableOf(range.startContainer);
+    if (!table || table !== codeTableOf(range.endContainer)) return null;
+    if (elementOf(range.commonAncestorContainer)?.closest(`[${UI_ATTRIBUTE}]`)) return null;
+    return table;
+  }
+
   private onSelectionFinished(clicked?: EventTarget | null): void {
     const sel = this.doc.getSelection();
     if (!sel || !parsePullUrl(this.doc.location.href)) return;
@@ -118,10 +129,10 @@ export class Controller {
       return;
     }
     const range = sel.getRangeAt(0);
-    if (!this.selectionRoot(range)) return;
     // A composer that already holds text is not replaced by a new selection.
     if (this.draft && !isBlankComment(this.draft.box.body)) return;
-    this.armDraft(range.cloneRange());
+    if (this.selectionRoot(range)) this.armDraft(range.cloneRange());
+    else if (this.codeRoot(range)) this.armCodeDraft(range.cloneRange(), false);
   }
 
   /**
@@ -132,6 +143,16 @@ export class Controller {
     if (!(target instanceof Node)) return;
     const el = elementOf(target);
     if (!el || el.closest(INTERACTIVE) || isMarginkUi(el)) return;
+    if (this.draft && !isBlankComment(this.draft.box.body)) return;
+    // In a source diff, a click on a line works like GitHub's "+" on that line.
+    const cell = el.closest(CODE_SELECTORS.code);
+    if (cell && codeTableOf(cell)) {
+      const caret = this.doc.getSelection();
+      if (caret && caret.rangeCount > 0 && cell.contains(caret.getRangeAt(0).startContainer)) {
+        this.armCodeDraft(caret.getRangeAt(0).cloneRange(), true);
+      }
+      return;
+    }
     const root = el.closest(SELECTORS.proseRoot);
     const block = root ? lineBlockAt(el, root) : null;
     if (!root || !block) return;
@@ -151,6 +172,28 @@ export class Controller {
     if (!draft) return;
     draft.box.arm(draft.quote);
     insertBeneathLine(range, root, draft.box.host);
+    this.focusDraft(draft);
+  }
+
+  /**
+   * Prepare a hidden composer in a new table row under the selected source
+   * lines (or the clicked line). The row takes no height until typing starts.
+   */
+  armCodeDraft(range: Range, wholeLine: boolean): void {
+    const table = this.codeRoot(range);
+    if (!table) return;
+    const resolved = resolveCodeRange(range);
+    if (!resolved.ok && resolved.reason === "empty-selection") return;
+    const endRow = resolved.ok ? resolved.endRow : elementOf(range.endContainer)?.closest("tr");
+    if (!endRow) return;
+    const draft = this.openDraft(range, table, wholeLine);
+    if (!draft) return;
+    // A part of one line is quoted, so readers see which part is meant;
+    // GitHub already shows whole lines above the comment.
+    const text = range.toString();
+    draft.quote = !wholeLine && resolved.ok && resolved.startLine === resolved.endLine && text.trim() !== endRow.querySelector(CODE_SELECTORS.code)?.textContent?.trim() ? text : "";
+    draft.codeRow = insertCodeRow(endRow as HTMLTableRowElement, draft.box.host, UI_ATTRIBUTE);
+    draft.box.arm(wholeLine ? undefined : text);
     this.focusDraft(draft);
   }
 
@@ -183,7 +226,7 @@ export class Controller {
       onReveal: () => void this.revealDraft(draft),
       onDisarm: () => this.closeDraft({ restoreSelection: !wholeBlock }),
     });
-    const draft: Draft = { pull, box, range, root, quote: wholeBlock ? "" : range.toString(), wholeBlock, target: null, comparison: null, parent: null };
+    const draft: Draft = { pull, box, range, root, quote: wholeBlock ? "" : range.toString(), wholeBlock, codeRow: null, target: null, comparison: null, parent: null };
     this.draft = draft;
     return draft;
   }
@@ -199,6 +242,10 @@ export class Controller {
     if (this.draft !== draft) return;
     this.paintHighlights();
     const { box, range, root, pull } = draft;
+    if (draft.codeRow) {
+      setCodeRowCollapsed(draft.codeRow, false);
+      return this.resolveCodeDraft(draft);
+    }
     try {
       const side = draft.wholeBlock ? sideOfBlock(range, root) : sideOfRange(range, root);
       if (side === "mixed") {
@@ -228,6 +275,29 @@ export class Controller {
     }
   }
 
+  private async resolveCodeDraft(draft: Draft): Promise<void> {
+    const { box, range, root, pull } = draft;
+    const resolved = resolveCodeRange(range);
+    if (!resolved.ok) {
+      box.setUnavailable(RESOLVE_MESSAGES[resolved.reason]);
+      return;
+    }
+    try {
+      const comparison = await this.loadComparison(pull);
+      const path = await findFilePath(root, comparison);
+      if (this.draft !== draft) return;
+      if (!path) {
+        box.setUnavailable("Margink could not tell which file this line belongs to.");
+        return;
+      }
+      draft.comparison = comparison;
+      draft.target = { path, side: resolved.side, startLine: resolved.startLine, endLine: resolved.endLine };
+      box.setTarget(describeTarget(draft.target));
+    } catch (error) {
+      if (this.draft === draft) box.setUnavailable(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   private async confirm(body: string, delivery: Delivery): Promise<void> {
     const draft = this.draft;
     if (!draft) return;
@@ -237,7 +307,8 @@ export class Controller {
       return;
     }
     if (!target || !comparison) return;
-    if (!draft.box.host.isConnected || !this.selectionRoot(draft.range)) {
+    const stillThere = draft.codeRow ? draft.root.isConnected : this.selectionRoot(draft.range) !== null;
+    if (!draft.box.host.isConnected || !stillThere) {
       box.showStatus("The page changed since you selected the text. Select it again.", "error");
       return;
     }
@@ -268,7 +339,8 @@ export class Controller {
     const draft = this.draft;
     this.draft = null;
     if (draft) {
-      draft.box.host.remove();
+      if (draft.codeRow) draft.codeRow.remove();
+      else draft.box.host.remove();
       draft.parent?.normalize(); // Rejoin the text split for the composer.
       if (options.restoreSelection) {
         const sel = this.doc.getSelection();

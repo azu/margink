@@ -10,7 +10,7 @@ This draft defines the behavior for the initial Chrome extension. Implementation
 
 ### Scope
 
-The starting point is a GitHub pull request containing Markdown changes, viewed in Chrome. The extension covers all displayed text in the rendered diff, including added, deleted, and unchanged passages. It provides passage selection, nearby comment entry, immediate publication as GitHub line comments by default, an alternative collection-and-copy mode, existing comment display, and configurable keyboard shortcuts.
+The starting point is a GitHub pull request containing Markdown changes, viewed in Chrome. The extension covers all displayed text in the rendered diff, including added, deleted, and unchanged passages. The same way of starting a comment also applies to lines in the pull request's source diffs of any file type. It provides passage selection, nearby comment entry, immediate publication as GitHub line comments by default, an alternative collection-and-copy mode, existing comment display, and configurable keyboard shortcuts.
 
 The reviewer uses their existing GitHub sign-in. They do not need to create or enter a separate access token for the extension.
 
@@ -67,6 +67,18 @@ Scenario: When the comment is empty, confirming it does not create a comment
 - Given: The comment input contains no text other than whitespace.
 - When: The reviewer attempts to confirm the comment.
 - Then: No GitHub comment or collected item is created, and the input remains available.
+
+### Comment on source diffs the same way
+
+As a reviewer who reads both prose and code in one pull request, I want to start a comment in a source diff the same way as in a rendered document so that I do not switch habits between them.
+
+**Acceptance criteria:**
+
+Scenario: When text in a source diff is selected and the reviewer types, a comment on those lines starts
+
+- Given: A pull request file is shown as a source diff, and GitHub permits a line comment on the selected lines.
+- When: The reviewer selects text on one or more lines of one version, or clicks a line, and starts typing.
+- Then: A comment input appears under those lines with the typed text, and confirming it publishes or adds to the review a comment on those lines in that version, without the reviewer opening GitHub's own comment form.
 
 ### Publish each confirmed comment to GitHub
 
