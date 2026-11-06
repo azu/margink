@@ -21,11 +21,20 @@ The manager checks the latest release for a newer version.
 
 ### Chrome extension
 
-1. Download `margink-<version>-chrome.zip` and unzip it into a folder you keep. Chrome loads the extension from that folder, so do not delete it.
-2. Open `chrome://extensions` and turn on **Developer mode**.
-3. Choose **Load unpacked** and select the unzipped folder.
+Chrome installs extensions from outside the Chrome Web Store only as an unpacked folder. Dropping the `.zip` onto `chrome://extensions` does not work, and neither does a `.crx` made with "Pack extension" on Windows or macOS.
 
-To update, unzip the newer release over the same folder and press the reload button on Margink's card in `chrome://extensions`.
+1. Download the latest release and unzip it into a data folder, `~/.local/share/margink` (or `$XDG_DATA_HOME/margink` when that is set). Chrome reads the extension from this folder every time it starts, so do not move or delete it. The command prints the folder's path at the end.
+
+   ```sh
+   dir="${XDG_DATA_HOME:-$HOME/.local/share}/margink" \
+     && curl -fsSL -o /tmp/margink-chrome.zip https://github.com/azu/margink/releases/latest/download/margink-chrome.zip \
+     && mkdir -p "$dir" && unzip -oq /tmp/margink-chrome.zip -d "$dir" && echo "$dir"
+   ```
+
+2. Open `chrome://extensions` and turn on **Developer mode** in the top right.
+3. Choose **Load unpacked** and select the printed folder. The folder is hidden, so in the macOS file dialog press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>G</kbd> and paste the path.
+
+To update, run the same command again, then press the reload button on Margink's card in `chrome://extensions`. Loading a different folder instead adds a second copy of Margink, because Chrome tells unpacked extensions apart by their folder.
 
 ### Firefox add-on
 

@@ -68,9 +68,10 @@ jobs:
           npm run zip:firefox
           npm run build:userscript
           mkdir -p release
-          cp ".output/margink-$VERSION-chrome.zip" release/
-          # Keep this name: installed userscripts check
-          # releases/latest/download/margink.user.js for updates.
+          # Fixed names: README's command downloads
+          # releases/latest/download/margink-chrome.zip, and installed
+          # userscripts check releases/latest/download/margink.user.js.
+          cp ".output/margink-$VERSION-chrome.zip" release/margink-chrome.zip
           cp .output/margink.user.js release/margink.user.js
         env:
           VERSION: ${{ steps.package.outputs.version }}
@@ -78,14 +79,19 @@ jobs:
       # Release Firefox installs only add-ons signed by Mozilla. The unlisted
       # channel signs the build for self-distribution without listing it on
       # addons.mozilla.org. Skipped until the AMO API key is configured.
+      # Mozilla can take a while to approve a version, and web-ext stops
+      # waiting after 15 minutes by default, so wait up to 30 minutes.
+      # v0.1.1 was signed in about 3.5 minutes.
       - name: Sign the Firefox package
         id: firefox
         if: steps.tag-check.outputs.exists == 'false' && env.AMO_CONFIGURED == 'true'
+        timeout-minutes: 35
         run: |
           npx --yes web-ext@10.8.0 sign \
             --source-dir .output/firefox-mv2 \
             --artifacts-dir .output/signed \
-            --channel unlisted
+            --channel unlisted \
+            --approval-timeout 1800000
           cp .output/signed/*.xpi "release/margink-$VERSION-firefox.xpi"
           echo "signed=true" >> "$GITHUB_OUTPUT"
         env:
