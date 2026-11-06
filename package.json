@@ -1,0 +1,25 @@
+{
+  "name": "margink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Comment on rendered Markdown in GitHub pull requests.",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "postinstall": "wxt prepare",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "npm run build && node tests/e2e/run.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "playwright": "^1.63.0",
+    "typescript": "5.8.3",
+    "vitest": "3.2.4",
+    "wxt": "0.20.6"
+  }
+}
