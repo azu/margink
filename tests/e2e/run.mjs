@@ -32,6 +32,11 @@ const page = `<!doctype html><html><head><title>PR</title><meta name="user-login
     <tr><td class="blob-num blob-num-addition empty-cell"></td><td id="diff-c0deR2" data-line-number="2" class="blob-num blob-num-addition js-blob-rnum"></td><td class="blob-code blob-code-addition"><span class="blob-code-inner">const b = 3;</span></td></tr>
     <tr><td id="diff-c0deL3" data-line-number="3" class="blob-num blob-num-context"></td><td id="diff-c0deR3" data-line-number="3" class="blob-num blob-num-context js-blob-rnum"></td><td class="blob-code blob-code-context"><span class="blob-code-inner">export { a, b };</span></td></tr>
   </tbody></table></div>
+<div role="region" id="diff-1f39" style="margin-top: 24px"><table role="grid" data-diff-anchor="diff-1f39" style="font-family: monospace; border-collapse: collapse; width: 100%"><tbody>
+    <tr class="diff-line-row"><td class="focusable-grid-cell new-diff-line-number" data-diff-side="left" data-line-number="100" role="gridcell" tabindex="-1">100</td><td class="focusable-grid-cell new-diff-line-number" data-diff-side="right" data-line-number="100" role="gridcell" tabindex="-1">100</td><td class="diff-text-cell focusable-grid-cell" data-line-anchor="diff-1f39R100" data-diff-side="right" data-line-number="100" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">let ctx = 0;</div></code></td></tr>
+    <tr class="diff-line-row"><td class="focusable-grid-cell new-diff-line-number" data-diff-side="left" data-line-number="101" role="gridcell" tabindex="-1">101</td><td class="focusable-grid-cell new-diff-line-number" data-diff-side="right" role="gridcell" tabindex="-1"></td><td class="diff-text-cell focusable-grid-cell" data-line-anchor="diff-1f39L101" data-diff-side="left" data-line-number="101" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">let old = 1;</div></code></td></tr>
+    <tr class="diff-line-row"><td class="focusable-grid-cell new-diff-line-number" data-diff-side="left" role="gridcell" tabindex="-1"></td><td class="focusable-grid-cell new-diff-line-number" data-diff-side="right" data-line-number="101" role="gridcell" tabindex="-1">101</td><td class="diff-text-cell focusable-grid-cell" data-line-anchor="diff-1f39R101" data-diff-side="right" data-line-number="101" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">let fresh = 2;</div></code></td></tr>
+  </tbody></table></div>
   <div style="height: 2000px"></div>
 </div>
 <script>window.pageShortcuts = []; document.addEventListener("keydown", (e) => window.pageShortcuts.push(e.key));</script>
@@ -48,7 +53,7 @@ await context.route("https://github.com/**", async (route) => {
   const url = new URL(req.url());
   if (url.pathname === "/o/r/pull/1/files") return route.fulfill({ contentType: "text/html", body: page });
   if (url.pathname === "/o/r/pull/1/changes") {
-    return route.fulfill({ json: { payload: { comparison: { fullDiff: { baseOid: base, headOid: head } }, diffSummaries: [{ path: "docs/guide.md", pathDigest: "0f00" }] } } });
+    return route.fulfill({ json: { payload: { comparison: { fullDiff: { baseOid: base, headOid: head } }, diffSummaries: [{ path: "docs/guide.md", pathDigest: "0f00" }, { path: "src/new.js", pathDigest: "1f39" }] } } });
   }
   const raw = /^\/o\/r\/raw\/([0-9a-f]+)\/docs\/guide\.md$/.exec(url.pathname);
   if (raw) return route.fulfill({ contentType: "text/plain", body: source[raw[1]] });
@@ -113,7 +118,7 @@ assert.equal(await tab.evaluate(() => getSelection().toString()), "Old words", "
 // 1. Removed text is commented on the base version.
 await startComment("Old words", 0, "W");
 assert.deepEqual(await tab.evaluate(() => window.pageShortcuts.filter((k) => k === "W")), [], "GitHub's shortcuts do not see the first key");
-await assert.doesNotReject(box().locator(".where", { hasText: "line 3 (before the change)" }).waitFor({ timeout: 5000 }));
+await assert.doesNotReject(box().locator(".where", { hasText: "guide.md L3 (before)" }).waitFor({ timeout: 5000 }));
 await box().locator("textarea").fill("Why remove this?");
 // Repeated confirmation while posting starts only one request.
 await box().locator("textarea").press(`${mod}+Enter`);
@@ -129,7 +134,7 @@ assert.match(await tab.locator('[data-margink-ui="posted-comment"] .text').inner
 
 // 2. The second "Repeat me." maps to head line 7.
 await startComment("Repeat me.", 1);
-await box().locator(".where", { hasText: "line 7 (after the change)" }).waitFor({ timeout: 5000 });
+await box().locator(".where", { hasText: /guide\.md L7$/ }).waitFor({ timeout: 5000 });
 
 // 3. A blank comment is not posted and the box stays.
 await box().locator("textarea").fill("   ");
@@ -154,7 +159,7 @@ assert.equal(await box().count(), 0);
 // 6. The composer opens directly beneath the line holding the selection,
 //    splitting the paragraph instead of waiting for its end.
 await startComment("pnpm", 0, "k");
-await box().locator(".where", { hasText: "line 9 (after the change)" }).waitFor({ timeout: 5000 });
+await box().locator(".where", { hasText: /guide\.md L9$/ }).waitFor({ timeout: 5000 });
 const split = await tab.evaluate(() => {
   const host = document.querySelector('[data-margink-ui="comment-box"]');
   const p = host.closest("p");
@@ -189,7 +194,7 @@ assert.ok(paragraphBox.x - (buttonBox.x + buttonBox.width) <= 10, "the button si
 assert.ok(Math.abs(buttonBox.y - paragraphBox.y) < 12, "the button is level with the first line");
 await addButton.click();
 assert.equal(await visibleBoxes(), 1, "the composer is shown at once");
-await assert.doesNotReject(box().locator(".where", { hasText: "lines 9–10 (after the change)" }).waitFor({ timeout: 5000 }));
+await assert.doesNotReject(box().locator(".where", { hasText: /guide\.md L9–10$/ }).waitFor({ timeout: 5000 }));
 assert.equal(await tab.evaluate(() => document.activeElement?.getAttribute("data-margink-ui")), "comment-box", "the composer has focus");
 const postsBefore = posts.length;
 await tab.keyboard.type("Whole paragraph");
@@ -203,7 +208,7 @@ assert.equal(blockPost.line, 10);
 
 await tab.locator("p", { hasText: "Keep this." }).hover();
 await addButton.click();
-await assert.doesNotReject(box().locator(".where", { hasText: "line 3 (after the change)" }).waitFor({ timeout: 5000 }));
+await assert.doesNotReject(box().locator(".where", { hasText: /guide\.md L3$/ }).waitFor({ timeout: 5000 }));
 await box().locator("textarea").fill("");
 await box().locator("textarea").press("Escape");
 
@@ -220,7 +225,7 @@ assert.equal(await textTop(), headingY, "a click alone does not move the text");
 await tab.keyboard.type("Typed");
 assert.equal(await visibleBoxes(), 1);
 assert.equal(await box().locator("textarea").inputValue(), "Typed");
-await assert.doesNotReject(box().locator(".where", { hasText: "line 1 (after the change)" }).waitFor({ timeout: 5000 }));
+await assert.doesNotReject(box().locator(".where", { hasText: /guide\.md L1$/ }).waitFor({ timeout: 5000 }));
 await box().locator("textarea").fill("");
 await box().locator("textarea").press("Escape");
 await longParagraph.click();
@@ -237,22 +242,22 @@ await tab.evaluate(() => scrollTo(0, 0));
 await heading.click();
 await tab.waitForTimeout(50);
 await tab.keyboard.type("Pending note");
-await assert.doesNotReject(box().locator(".where", { hasText: "line 1 (after the change)" }).waitFor({ timeout: 5000 }));
-assert.match(await box().locator(".review").innerText(), /^Add to review /);
+await assert.doesNotReject(box().locator(".where", { hasText: /guide\.md L1$/ }).waitFor({ timeout: 5000 }));
+assert.match(await box().locator(".review").innerText(), /^Review /);
 const beforeReview = posts.length;
 await tab.keyboard.press(`${mod}+Shift+Enter`);
 await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Pending note" }).waitFor({ timeout: 5000 });
 assert.equal(posts.length, beforeReview + 1);
 assert.equal(posts.at(-1).submitBatch, false, "the comment stays in the pending review");
 assert.equal(posts.at(-1).text, "Pending note");
-assert.match(await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Pending note" }).locator(".where").innerText(), /Added to your review \(pending\)/);
+assert.match(await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Pending note" }).locator(".where").innerText(), /^Pending review · guide\.md L1$/);
 assert.equal(posts.filter((p) => p.submitBatch === true).length, beforeReview, "earlier comments were published immediately");
 
 // 11. Source diffs work the same way: select part of a line and type.
 await select("b = 3", 0, ".diff-table");
 assert.equal(await visibleBoxes(), 0);
 await tab.keyboard.type("Why 3?");
-await assert.doesNotReject(box().locator(".where", { hasText: "src/app.js · line 2 (after the change)" }).waitFor({ timeout: 5000 }));
+await assert.doesNotReject(box().locator(".where", { hasText: /app\.js L2$/ }).waitFor({ timeout: 5000 }));
 await tab.keyboard.press(`${mod}+Enter`);
 await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Why 3?" }).waitFor({ timeout: 5000 });
 assert.deepEqual(
@@ -270,7 +275,7 @@ await tab.locator(".blob-code-inner", { hasText: "const b = 2;" }).click();
 await tab.waitForTimeout(50);
 assert.equal(await rowTop(), exportTop, "a click alone does not move the code");
 await tab.keyboard.type("Gone");
-await assert.doesNotReject(box().locator(".where", { hasText: "src/app.js · line 2 (before the change)" }).waitFor({ timeout: 5000 }));
+await assert.doesNotReject(box().locator(".where", { hasText: "app.js L2 (before)" }).waitFor({ timeout: 5000 }));
 await box().locator("textarea").fill("");
 await box().locator("textarea").press("Escape");
 assert.equal(await tab.locator('[data-margink-ui="code-row"]').count(), 1, "cancelling removes the composer row");
@@ -280,7 +285,43 @@ await tab.locator("button.add-line-comment").click();
 await tab.waitForTimeout(50);
 assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0);
 
+//     The React "Files changed" view (markup from a signed-in /changes page).
+await select("fresh", 0, "#diff-1f39");
+await tab.keyboard.type("Why fresh?");
+await assert.doesNotReject(box().locator(".where", { hasText: /new\.js L101$/ }).waitFor({ timeout: 5000 }));
+await tab.keyboard.press(`${mod}+Enter`);
+await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Why fresh?" }).waitFor({ timeout: 5000 });
+assert.deepEqual(
+  { path: posts.at(-1).path, line: posts.at(-1).line, side: posts.at(-1).side, text: posts.at(-1).text },
+  { path: "src/new.js", line: 101, side: "right", text: "> fresh\n\nWhy fresh?" },
+);
+await tab.locator(".diff-text-inner", { hasText: "let old = 1;" }).click();
+await tab.waitForTimeout(50);
+await tab.keyboard.type("Old");
+await assert.doesNotReject(box().locator(".where", { hasText: "new.js L101 (before)" }).waitFor({ timeout: 5000 }));
+await box().locator("textarea").fill("");
+await box().locator("textarea").press("Escape");
+
+// 12. Several composers can be open at once: starting another comment keeps
+//     the ones that already hold text.
+await select("Keep this.");
+await tab.keyboard.type("First draft");
+await select("Repeat me.", 0);
+await tab.keyboard.type("Second draft");
+assert.equal(await visibleBoxes(), 2, "both composers stay open");
+const firstBox = box().filter({ has: tab.locator("textarea") }).nth(0);
+assert.deepEqual(await box().locator("textarea").evaluateAll((t) => t.map((x) => x.value)), ["First draft", "Second draft"]);
+//     Each composer posts its own comment.
+const beforeMulti = posts.length;
+await box().nth(1).locator("textarea").press(`${mod}+Enter`);
+await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Second draft" }).waitFor({ timeout: 5000 });
+assert.equal(posts.length, beforeMulti + 1);
+assert.match(posts.at(-1).text, /Second draft$/);
+assert.equal(await box().locator("textarea").inputValue(), "First draft", "the other composer keeps its text");
+//     An empty composer still gives way to the next one.
+await box().locator("textarea").fill("");
 await select("pnpm");
+assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 1, "the emptied composer closed");
 await tab.keyboard.type("こういう感じで");
 await tab.locator("p", { hasText: "Repeat me." }).first().hover();
 await addButton.waitFor({ state: "visible", timeout: 2000 });

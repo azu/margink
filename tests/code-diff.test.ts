@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { codeLineOfCell, insertCodeRow, resolveCodeRange } from "../src/lib/code-diff";
+import { codeCellOf, codeLineOfCell, insertCodeRow, resolveCodeRange } from "../src/lib/code-diff";
 
 const D = "diff-abc";
 function unified(): Element {
@@ -70,5 +70,50 @@ describe("source diff lines", () => {
     const tr = insertCodeRow(row, host, "data-margink-ui");
     expect(row.nextElementSibling).toBe(tr);
     expect((tr.firstElementChild as HTMLTableCellElement).colSpan).toBe(3);
+  });
+});
+
+describe("React Files changed view", () => {
+  // Markup reported from a signed-in /pull/N/changes page (unified view).
+  const A = "diff-1f39";
+  const num = (side: string, n: number) =>
+    `<td class="focusable-grid-cell new-diff-line-number left-side" data-diff-side="${side}" data-line-number="${n}" role="gridcell" tabindex="-1">${n}</td>`;
+  const blank = (side: string) => `<td class="focusable-grid-cell new-diff-line-number" data-diff-side="${side}" role="gridcell" tabindex="-1"></td>`;
+  const code = (side: string, n: number, text: string, anchor: string) =>
+    `<td class="diff-text-cell focusable-grid-cell left-side" data-line-anchor="${A}${anchor}" data-diff-side="${side}" data-line-number="${n}" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">${text}</div></code></td>`;
+  function reactUnified(): Element {
+    document.body.innerHTML = `<div role="region" id="${A}"><table role="grid" data-diff-anchor="${A}"><tbody>
+      <tr class="diff-line-row">${num("left", 100)}${num("right", 100)}${code("right", 100, "context line", "R100")}</tr>
+      <tr class="diff-line-row">${num("left", 101)}${blank("right")}${code("left", 101, "removed line", "L101")}</tr>
+      <tr class="diff-line-row">${blank("left")}${num("right", 101)}${code("right", 101, "added line", "R101")}</tr>
+    </tbody></table></div>`;
+    return document.querySelector("table")!;
+  }
+  const caretIn = (t: Element, text: string) => {
+    const div = [...t.querySelectorAll(".diff-text-inner")].find((s) => s.textContent === text)!;
+    const r = document.createRange();
+    r.setStart(div.firstChild!, 1);
+    return r;
+  };
+
+  it("reads the line and side from the code cell", () => {
+    const t = reactUnified();
+    expect(resolveCodeRange(caretIn(t, "context line"))).toMatchObject({ ok: true, side: "head", startLine: 100 });
+    expect(resolveCodeRange(caretIn(t, "removed line"))).toMatchObject({ ok: true, side: "base", startLine: 101 });
+    expect(resolveCodeRange(caretIn(t, "added line"))).toMatchObject({ ok: true, side: "head", startLine: 101 });
+  });
+
+  it("does not treat line-number cells as code", () => {
+    const t = reactUnified();
+    expect(codeCellOf(t.querySelector(".new-diff-line-number")!)).toBeNull();
+    expect(codeCellOf(t.querySelector(".diff-text-inner")!)?.classList.contains("diff-text-cell")).toBe(true);
+  });
+
+  it("resolves a selection across rows of one side", () => {
+    const t = reactUnified();
+    const r = document.createRange();
+    r.setStart(t.querySelectorAll(".diff-text-inner")[0]!.firstChild!, 2);
+    r.setEnd(t.querySelectorAll(".diff-text-inner")[2]!.firstChild!, 3);
+    expect(resolveCodeRange(r)).toMatchObject({ ok: false, reason: "mixed-versions" });
   });
 });

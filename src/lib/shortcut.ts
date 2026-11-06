@@ -60,10 +60,12 @@ export function reviewChord(chord: ConfirmChord): ConfirmChord {
 }
 
 export function describeChord(chord: ConfirmChord, mac: boolean): string {
+  // macOS lists modifiers as ⌥⇧⌘ and shows Return as ↵.
+  if (mac) return `${chord.alt ? "⌥" : ""}${chord.shift ? "⇧" : ""}${chord.primary ? "⌘" : ""}↵`;
   const parts: string[] = [];
-  if (chord.primary) parts.push(mac ? "⌘" : "Ctrl");
-  if (chord.alt) parts.push(mac ? "⌥" : "Alt");
-  if (chord.shift) parts.push(mac ? "⇧" : "Shift");
+  if (chord.primary) parts.push("Ctrl");
+  if (chord.alt) parts.push("Alt");
+  if (chord.shift) parts.push("Shift");
   parts.push("Enter");
-  return parts.join(mac ? "" : "+");
+  return parts.join("+");
 }
