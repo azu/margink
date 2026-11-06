@@ -8,6 +8,8 @@ Margink is a browser extension for reviewing Markdown in GitHub pull requests as
 
 Chrome is the primary browser. Development should allow support for other extension browsers, including Firefox, without changing the product's purpose.
 
+Each version is distributed as files attached to a GitHub release, not through the browser stores: a package for Chrome that users load in developer mode, and, once Mozilla signing is set up, a signed package for Firefox. Neither updates itself; users install a newer release by hand.
+
 ## Background and problems
 
 ### Background
@@ -62,4 +64,4 @@ No numerical reliability targets or production measurements are established. Obs
 
 ## Open questions
 
-The browser support commitment beyond Chrome remains open. Firefox is an intended extension path, not a claim of support at the first release; decide its release scope with the product owner before advertising compatibility.
+The browser support commitment beyond Chrome remains open. Releases include a signed Firefox package so it can be tried, but its behavior on github.com is not yet confirmed; decide with the product owner before advertising Firefox compatibility. Whether to publish to the Chrome Web Store or addons.mozilla.org, which would give automatic updates, is also open.

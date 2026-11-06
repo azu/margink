@@ -1,0 +1,143 @@
+name: Release
+
+# Merging a pull request labeled "Type: Release" (made by Create Release PR)
+# builds the extension, attaches it to a GitHub Release, and creates the tag.
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+jobs:
+  release:
+    if: |
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'Type: Release')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write # PR comment
+    env:
+      AMO_CONFIGURED: ${{ secrets.AMO_API_KEY != '' && secrets.AMO_API_SECRET != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Get version
+        id: package
+        run: echo "version=$(jq -r '.version' package.json)" >> "$GITHUB_OUTPUT"
+
+      # Asks GitHub instead of the checkout, which has no tags, so a rerun
+      # after a successful release does nothing.
+      - name: Check if the release exists
+        id: tag-check
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+
+      - name: Setup Node.js
+        if: steps.tag-check.outputs.exists == 'false'
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.tag-check.outputs.exists == 'false'
+        run: npm ci
+
+      - name: Test
+        if: steps.tag-check.outputs.exists == 'false'
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build Chrome and Firefox packages
+        if: steps.tag-check.outputs.exists == 'false'
+        run: |
+          npm run zip
+          npm run zip:firefox
+          mkdir -p release
+          cp ".output/margink-$VERSION-chrome.zip" release/
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+
+      # Release Firefox installs only add-ons signed by Mozilla. The unlisted
+      # channel signs the build for self-distribution without listing it on
+      # addons.mozilla.org. Skipped until the AMO API key is configured.
+      - name: Sign the Firefox package
+        id: firefox
+        if: steps.tag-check.outputs.exists == 'false' && env.AMO_CONFIGURED == 'true'
+        run: |
+          npx --yes web-ext@10.8.0 sign \
+            --source-dir .output/firefox-mv2 \
+            --artifacts-dir .output/signed \
+            --channel unlisted
+          cp .output/signed/*.xpi "release/margink-$VERSION-firefox.xpi"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+          WEB_EXT_API_KEY: ${{ secrets.AMO_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+
+      - name: Create GitHub Release with tag
+        id: create-release
+        if: steps.tag-check.outputs.exists == 'false'
+        run: |
+          RELEASE_URL=$(gh release create "v$VERSION" release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "v$VERSION" \
+            --target "$SHA" \
+            --notes "$PR_BODY")
+          echo "url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          SHA: ${{ github.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+
+      - name: Comment on PR - Success
+        if: success() && steps.tag-check.outputs.exists == 'false'
+        run: |
+          if [ "$FIREFOX_SIGNED" = "true" ]; then
+            FIREFOX="- 🦊 Firefox: signed .xpi attached"
+          else
+            FIREFOX="- 🦊 Firefox: not attached (AMO_API_KEY and AMO_API_SECRET are not set)"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body "✅ **Release v$VERSION completed**
+
+          - 🏷 GitHub Release: $RELEASE_URL
+          $FIREFOX
+          - 🔗 Workflow run: $SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          VERSION: ${{ steps.package.outputs.version }}
+          RELEASE_URL: ${{ steps.create-release.outputs.url }}
+          FIREFOX_SIGNED: ${{ steps.firefox.outputs.signed }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
+
+      - name: Comment on PR - Failure
+        if: failure() && steps.tag-check.outputs.exists == 'false'
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body "❌ **Release v$VERSION failed**
+
+          Check the workflow log: $SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          VERSION: ${{ steps.package.outputs.version }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
