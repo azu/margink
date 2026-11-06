@@ -33,6 +33,8 @@ The extension has three parts:
 - A **background service worker**. It owns the per-tab stock, because only it knows tab identifiers and tab closing, and it keeps the stock away from page-reachable storage.
 - An **options page**. It edits the mode and the confirm shortcut.
 
+The same content script code is also built as a userscript (`margink.user.js`) for managers such as Tampermonkey. Both builds start through one shared function, and the userscript is bundled from it with esbuild and a metadata block that points update checks at the latest GitHub release. The userscript has no background service worker or options page, so it carries only behavior that needs nothing beyond the page; when the stock and settings arrive, the userscript needs its own storage for them or leaves them to the extension.
+
 Logic that does not need the DOM (text normalization, location resolution, request bodies, shortcut matching, stock formatting) lives in plain modules so unit tests can run it without a browser.
 
 ### Main flow

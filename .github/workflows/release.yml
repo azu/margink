@@ -61,15 +61,18 @@ jobs:
           npm run typecheck
           npm test
 
-      - name: Build Chrome and Firefox packages
+      - name: Build Chrome, Firefox, and userscript packages
         if: steps.tag-check.outputs.exists == 'false'
         run: |
           npm run zip
           npm run zip:firefox
+          npm run build:userscript
           mkdir -p release
-          # A fixed name lets README's command download
-          # releases/latest/download/margink-chrome.zip.
+          # Fixed names: README's command downloads
+          # releases/latest/download/margink-chrome.zip, and installed
+          # userscripts check releases/latest/download/margink.user.js.
           cp ".output/margink-$VERSION-chrome.zip" release/margink-chrome.zip
+          cp .output/margink.user.js release/margink.user.js
         env:
           VERSION: ${{ steps.package.outputs.version }}
 
