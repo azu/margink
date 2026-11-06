@@ -22,7 +22,7 @@ export interface KeyLike {
   keyCode?: number;
 }
 
-export type KeyAction = "confirm" | "newline" | "none";
+export type KeyAction = "confirm" | "review" | "newline" | "none";
 
 /**
  * Decide what a keydown in the comment box does.
@@ -39,11 +39,24 @@ export function keyAction(event: KeyLike, chord: ConfirmChord, mac: boolean): Ke
   if (primary === chord.primary && event.shiftKey === chord.shift && event.altKey === chord.alt) {
     return "confirm";
   }
+  // The confirm chord with Shift added adds the comment to the pending review.
+  if (hasReviewChord(chord) && primary && event.shiftKey && event.altKey === chord.alt) {
+    return "review";
+  }
   // Plain Enter is a newline unless it confirms; then Shift+Enter is the newline.
   const plain = !primary && !event.shiftKey && !event.altKey;
   const shiftOnly = !primary && event.shiftKey && !event.altKey;
   if (plain || shiftOnly) return "newline";
   return "none";
+}
+
+/** Whether the add-to-review chord (the confirm chord plus Shift) exists. */
+export function hasReviewChord(chord: ConfirmChord): boolean {
+  return chord.primary && !chord.shift;
+}
+
+export function reviewChord(chord: ConfirmChord): ConfirmChord {
+  return { ...chord, shift: true };
 }
 
 export function describeChord(chord: ConfirmChord, mac: boolean): string {

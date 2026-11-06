@@ -98,6 +98,12 @@ Scenario: When the publication result is unknown, the extension does not claim s
 - When: The publication attempt ends without a confirmed result.
 - Then: The extension retains the comment, shows that publication could not be confirmed, and lets the reviewer check GitHub before deciding whether to send it again.
 
+Scenario: When the reviewer adds a comment to the review, it waits for the review submission
+
+- Given: GitHub publication mode is selected, the reviewer is signed in and permitted to comment, and the input contains a nonempty comment on a supported passage.
+- When: The reviewer uses the add-to-review action instead of the publish action.
+- Then: The comment is added to the reviewer's pending GitHub review on the same source line or range, other people cannot read it until the reviewer submits the review in GitHub's standard UI, and the input shows that it was added to the review rather than published.
+
 ### Collect feedback and copy it with context
 
 As a reviewer using another conversation or tool, I want to collect comments and copy them with their passages so that the recipient can understand each comment.
@@ -216,7 +222,7 @@ If the passage cannot be identified reliably, do not attach the comment to a gue
 
 #### Applicable conditions
 
-Show the active destination before confirmation. In GitHub mode, each confirmation publishes that comment; it does not silently hold it for a later review submission. In collection mode, confirmation has no GitHub publication side effect. Switching modes does not itself send collected items.
+Show the active destination before confirmation. In GitHub mode, the publish action publishes that comment, and the add-to-review action adds it to the reviewer's pending review, as GitHub's "Add single comment" and "Start a review" do. Neither action silently chooses the other. Submitting the pending review, with its approve, comment, or request-changes outcome, stays in GitHub's standard UI. In collection mode, confirmation has no GitHub publication side effect. Switching modes does not itself send collected items.
 
 The GitHub destination is a review comment on the source line or range corresponding to the selection. Preserve the selected quotation in the comment so a GitHub reader can distinguish a phrase within that line. Deleted passages refer to the version before the change; added passages refer to the version after it. An unavailable line target is not replaced with a PR conversation comment.
 

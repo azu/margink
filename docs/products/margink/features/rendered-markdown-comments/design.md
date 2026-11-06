@@ -70,9 +70,9 @@ Its qualities are lightness and staying in the reading flow, so the composer is 
   When that point is inside a link or other inline markup, the composer goes after that element. In code blocks and tables, or on a block's last line, it goes after the block.
 - **Marking the passage.** Once the composer is revealed, the selected words get a 2px underline in the composer's accent color, drawn with the CSS Custom Highlight API so GitHub's DOM is not wrapped or restyled.
 - **Composer.** A low-contrast card with a 1px border, a slightly raised background, and a 3px accent bar on the left. The reviewer's avatar comes first, and a borderless text area starts at one line and grows with its content.
-  There are no labels or buttons inside the writing area. A small muted line under it names the target, and a muted text control at the right names the destination and the shortcut (for example "Post to GitHub ⌘Enter"); it is also the on-screen confirm action.
+  There are no labels or buttons inside the writing area. A small muted line under it names the target, and muted text controls at the right of that line name each action and its shortcut ("Add to review ⇧⌘Enter" and "Post to GitHub ⌘Enter"); they move below the target when the card is narrow and are also the on-screen actions. A comment added to the review keeps a dashed border, so it reads as not yet visible to others.
 - **Finished comment.** After publishing, the same card keeps the avatar and text, drops the accent bar as the recording's comments at rest do, and links to the comment on GitHub. The passage keeps a softer underline in the accent color.
-- **Keys.** The configured chord confirms, Enter inserts a newline, Escape cancels, and IME composition always takes priority. Key events in the composer do not reach GitHub's page shortcuts.
+- **Keys.** The configured chord publishes, the same chord with Shift adds to the pending review, Enter inserts a newline, Escape cancels, and IME composition always takes priority. Key events in the composer do not reach GitHub's page shortcuts.
 
 The accent is purple (#8250df, or #ab7aca on dark backgrounds), matching the reference screen while staying readable on GitHub's light and dark themes.
 The recording also mirrors each comment, while it is typed, into a list that shows the file and line, the source line with the selected words highlighted, and the comment; that list corresponds to the stock panel and follows its own change.
@@ -101,7 +101,11 @@ Resolution failure keeps the comment box open with the reason (for example "This
 
 ### Publishing and stocking
 
-GitHub mode publishes immediately, never as a pending review.
+In GitHub mode, the confirm chord (Command+Enter on macOS, Control+Enter elsewhere) publishes immediately, and the same chord with Shift adds the comment to the reviewer's pending review.
+Both send the same create-comment request; only `submitBatch` differs: `true` publishes the comment, and `false` keeps it in the pending review, which GitHub creates on the first such comment.
+The meaning of `submitBatch` is inferred from GitHub's two comment buttons and is not documented, so it must be checked against a signed-in pull request before release.
+The composer shows both actions as muted text controls ("Add to review ⇧⌘Enter" and "Post to GitHub ⌘Enter"). A comment added to the review becomes a finished card that says "Added to your review (pending)" and links to the pull request's files page, where GitHub's own "Submit review" control submits it.
+When the confirm chord is plain Enter or already uses Shift, there is no add-to-review chord, and only the on-screen control adds to the review.
 The comment body starts with the selected text as a Markdown quote, followed by a blank line and the reviewer's comment, so readers on GitHub can see which words in the line are meant.
 A comment started from the add button is about the whole block, which GitHub already shows above the comment, so its body is the reviewer's comment without a quote.
 A block resolves like a selection of all its text, except for its version: a block whose text is all deleted uses the version before the change, and any other block uses the version after the change, leaving deleted words out.
@@ -207,7 +211,7 @@ These are the endpoints GitHub's own pull request UI uses; they are not part of 
 - **Source text.** `GET /{owner}/{repo}/raw/{commit}/{path}` returns the file's text, possibly through a redirect to GitHub's raw content host.
   If that response cannot be read, `GET /{owner}/{repo}/blob/{commit}/{path}` returns the file page, whose embedded data contains the source lines.
   The parser searches the embedded data for the source lines rather than relying on one fixed path, because GitHub has moved it before.
-- **Create review comment.** `POST /{owner}/{repo}/pull/{number}/page_data/create_review_comment` with the base and head commits, path, side, line or line range, and body.
+- **Create review comment.** `POST /{owner}/{repo}/pull/{number}/page_data/create_review_comment` with the base and head commits, path, side, line or line range, body, and `submitBatch` (`true` to publish, `false` to add to the pending review).
   Responses of 200 or 201 contain the created thread, including its URL.
 
 Each endpoint is wrapped by one module that validates the response shape.
