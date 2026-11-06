@@ -1,1 +1,4 @@
 /.sdev/
+node_modules/
+.output/
+.wxt/
