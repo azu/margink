@@ -10,6 +10,9 @@ import { loadSourceLines } from "../github/source";
 import { AddButton } from "./add-button";
 import { CommentBox, UI_ATTRIBUTE } from "./comment-box";
 
+/** Elements whose click does something of its own, so it never starts a comment. */
+const INTERACTIVE = "a, button, summary, label, input, select, textarea, [contenteditable], [role=button], [tabindex]";
+
 const ARMED_HIGHLIGHT = "margink-armed";
 const DRAFT_HIGHLIGHT = "margink-draft";
 const POSTED_HIGHLIGHT = "margink-posted";
@@ -66,7 +69,8 @@ export class Controller {
     // reaching GitHub's single-key shortcuts.
     this.doc.addEventListener("mouseup", (e) => {
       if (e.button !== 0 || isMarginkUi(e.target)) return;
-      setTimeout(() => this.onSelectionFinished(), 0);
+      const target = e.target;
+      setTimeout(() => this.onSelectionFinished(target), 0);
     });
     this.doc.addEventListener("keyup", (e) => {
       if (e.key === "Shift") this.onSelectionFinished();
@@ -106,15 +110,37 @@ export class Controller {
     return start;
   }
 
-  private onSelectionFinished(): void {
+  private onSelectionFinished(clicked?: EventTarget | null): void {
     const sel = this.doc.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) return;
-    if (!parsePullUrl(this.doc.location.href)) return;
+    if (!sel || !parsePullUrl(this.doc.location.href)) return;
+    if (sel.isCollapsed || !sel.toString().trim()) {
+      if (clicked) this.onClick(clicked);
+      return;
+    }
     const range = sel.getRangeAt(0);
     if (!this.selectionRoot(range)) return;
     // A composer that already holds text is not replaced by a new selection.
     if (this.draft && !isBlankComment(this.draft.box.body)) return;
     this.armDraft(range.cloneRange());
+  }
+
+  /**
+   * A click without a selection in a rendered block prepares an invisible
+   * composer for the whole block, so typing right away starts a comment there.
+   */
+  private onClick(target: EventTarget): void {
+    if (!(target instanceof Node)) return;
+    const el = elementOf(target);
+    if (!el || el.closest(INTERACTIVE) || isMarginkUi(el)) return;
+    const root = el.closest(SELECTORS.proseRoot);
+    const block = root ? lineBlockAt(el, root) : null;
+    if (!root || !block) return;
+    if (this.draft && !isBlankComment(this.draft.box.body)) return;
+    const draft = this.openDraft(blockRange(block), root, true);
+    if (!draft) return;
+    draft.box.arm();
+    insertAfterBlock(block, root, draft.box.host);
+    this.focusDraft(draft);
   }
 
   /** Insert an invisible composer beneath the selection and give it focus. */
@@ -155,7 +181,7 @@ export class Controller {
       onConfirm: (body) => void this.confirm(body),
       onCancel: () => this.closeDraft(),
       onReveal: () => void this.revealDraft(draft),
-      onDisarm: () => this.closeDraft({ restoreSelection: true }),
+      onDisarm: () => this.closeDraft({ restoreSelection: !wholeBlock }),
     });
     const draft: Draft = { pull, box, range, root, quote: wholeBlock ? "" : range.toString(), wholeBlock, target: null, comparison: null, parent: null };
     this.draft = draft;
@@ -256,7 +282,7 @@ export class Controller {
     const HighlightCtor = (globalThis as { Highlight?: new (...r: Range[]) => unknown }).Highlight;
     if (!css?.highlights || !HighlightCtor) return;
     // While armed, the passage looks selected; once typing starts it is underlined.
-    const armed = this.draft?.box.isArmed ? this.draft.range : null;
+    const armed = this.draft?.box.isArmed && !this.draft.wholeBlock ? this.draft.range : null;
     const drafting = this.draft && !this.draft.box.isArmed ? this.draft.range : null;
     if (armed) css.highlights.set(ARMED_HIGHLIGHT, new HighlightCtor(armed));
     else css.highlights.delete(ARMED_HIGHLIGHT);

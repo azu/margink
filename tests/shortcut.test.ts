@@ -51,6 +51,8 @@ describe("keys in an armed composer", () => {
     expect(isPageKey(k("ArrowDown"))).toBe(true);
     expect(isPageKey(k("PageDown"))).toBe(true);
     expect(isPageKey(k("Tab"))).toBe(true);
+    expect(isPageKey(k(" "))).toBe(true);
+    expect(isPageKey(k(" ", { isComposing: true }))).toBe(false);
     expect(isPageKey(k("f", { metaKey: true }))).toBe(true);
   });
 });

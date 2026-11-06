@@ -19,13 +19,14 @@ const source = {
 
 const page = `<!doctype html><html><head><title>PR</title><meta name="user-login" content="octocat"></head><body style="font-family: sans-serif; max-width: 520px; margin: 24px; font-size: 16px; line-height: 1.6">
 <div id="diff-0f00">
-  <div class="prose-diff">
+  <div class="prose-diff"><article class="markdown-body" style="padding: 0 32px">
     <h1>Guide</h1>
     <p>Keep this. <del>Old words here.</del><ins>New words here.</ins></p>
     <p>Repeat me.</p>
     <p><ins>Repeat me.</ins></p>
     <p><ins>Use the Node version in the version file and pnpm from the package manager field. CI reads the version file through the setup action, and local checks do not replace CI.</ins></p>
-  </div>
+  </article></div>
+  <div style="height: 2000px"></div>
 </div>
 <script>window.pageShortcuts = []; document.addEventListener("keydown", (e) => window.pageShortcuts.push(e.key));</script>
 </body></html>`;
@@ -178,6 +179,7 @@ await addButton.waitFor({ state: "visible", timeout: 2000 });
 const buttonBox = await addButton.boundingBox();
 const paragraphBox = await longParagraph.boundingBox();
 assert.ok(buttonBox.x + buttonBox.width <= paragraphBox.x, "the button sits left of the text");
+assert.ok(paragraphBox.x - (buttonBox.x + buttonBox.width) <= 10, "the button sits right beside the text");
 assert.ok(Math.abs(buttonBox.y - paragraphBox.y) < 12, "the button is level with the first line");
 await addButton.click();
 assert.equal(await visibleBoxes(), 1, "the composer is shown at once");
@@ -196,7 +198,36 @@ assert.equal(blockPost.line, 10);
 await tab.locator("p", { hasText: "Keep this." }).hover();
 await addButton.click();
 await assert.doesNotReject(box().locator(".where", { hasText: "line 3 (after the change)" }).waitFor({ timeout: 5000 }));
-await box().locator("textarea").fill("こういう感じで");
+await box().locator("textarea").fill("");
+await box().locator("textarea").press("Escape");
+
+// 9. Without a selection, clicking in a block and typing starts a comment
+//    on that block; a click alone changes nothing on screen, and Space
+//    still scrolls the page.
+const heading = tab.locator("h1");
+const textTop = () => longParagraph.evaluate((p) => p.getBoundingClientRect().top + scrollY);
+const headingY = await textTop();
+await heading.click();
+await tab.waitForTimeout(50);
+assert.equal(await visibleBoxes(), 0, "a click alone shows nothing");
+assert.equal(await textTop(), headingY, "a click alone does not move the text");
+await tab.keyboard.type("Typed");
+assert.equal(await visibleBoxes(), 1);
+assert.equal(await box().locator("textarea").inputValue(), "Typed");
+await assert.doesNotReject(box().locator(".where", { hasText: "line 1 (after the change)" }).waitFor({ timeout: 5000 }));
+await box().locator("textarea").fill("");
+await box().locator("textarea").press("Escape");
+await longParagraph.click();
+await tab.waitForTimeout(50);
+assert.equal(await tab.locator('[data-margink-ui="comment-box"][data-armed]').count(), 1);
+await tab.keyboard.press(" ");
+await tab.waitForTimeout(300);
+assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0, "Space hands the page back");
+assert.ok(await tab.evaluate(() => scrollY) > 0, "Space scrolls the page");
+await tab.evaluate(() => scrollTo(0, 0));
+
+await select("pnpm");
+await tab.keyboard.type("こういう感じで");
 await tab.locator("p", { hasText: "Repeat me." }).first().hover();
 await addButton.waitFor({ state: "visible", timeout: 2000 });
 
