@@ -70,12 +70,17 @@ async function select(text, nth = 0) {
         const sel = getSelection();
         sel.removeAllRanges();
         sel.addRange(r);
+        document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
         return;
       }
     }
     throw new Error("not found " + text);
   }, [text, nth]);
+  await tab.waitForTimeout(50);
 }
+
+const box = () => tab.locator('[data-margink-ui="comment-box"]');
+const mod = process.platform === "darwin" ? "Meta" : "Control";
 
 // Typing while text is selected opens the composer with the typed text in it.
 async function startComment(text, nth = 0, first = "x") {
@@ -84,14 +89,19 @@ async function startComment(text, nth = 0, first = "x") {
   await tab.locator('[data-margink-ui="comment-box"]').waitFor({ timeout: 5000 });
   assert.equal(await tab.locator('[data-margink-ui="comment-box"] textarea').inputValue(), first);
 }
-const box = () => tab.locator('[data-margink-ui="comment-box"]');
-const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-// 0. Selecting alone, or copying, does not open the composer.
+const visibleBoxes = () => tab.evaluate(() => [...document.querySelectorAll('[data-margink-ui="comment-box"]')].filter((h) => !h.hasAttribute("data-armed")).length);
+
+// 0. Selecting alone shows nothing new, copying still copies the passage,
+//    and navigation keys hand the selection back to the page.
+await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "https://github.com" });
 await select("Old words");
-await tab.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+c`);
-await tab.waitForTimeout(200);
-assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0);
+assert.equal(await visibleBoxes(), 0, "the composer stays invisible until typing");
+await tab.keyboard.press(`${mod}+c`);
+assert.equal(await tab.evaluate(() => navigator.clipboard.readText()), "Old words");
+await tab.keyboard.press("ArrowDown");
+assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0, "a navigation key disarms");
+assert.equal(await tab.evaluate(() => getSelection().toString()), "Old words", "the selection is restored");
 
 // 1. Removed text is commented on the base version.
 await startComment("Old words", 0, "W");
@@ -145,6 +155,18 @@ const split = await tab.evaluate(() => {
 });
 assert.ok(split.inParagraph, "composer sits inside the paragraph");
 assert.ok(split.after.length > 0, "text continues after the composer");
+await box().locator("textarea").fill("");
+
+// 7. IME input starts in the composer from the first key: the composition
+//    goes into the text area that already has focus.
+await box().locator("textarea").press("Escape");
+await select("pnpm");
+const cdp = await context.newCDPSession(tab);
+await cdp.send("Input.imeSetComposition", { text: "n", selectionStart: 1, selectionEnd: 1 });
+await cdp.send("Input.imeSetComposition", { text: "にほんご", selectionStart: 4, selectionEnd: 4 });
+await cdp.send("Input.insertText", { text: "日本語" });
+assert.equal(await box().locator("textarea").inputValue(), "日本語", "no raw letter is left before the composition");
+assert.equal(await visibleBoxes(), 1);
 await box().locator("textarea").fill("こういう感じで");
 
 await tab.screenshot({ path: process.env.SCREENSHOT ?? join(tmpdir(), "margink-e2e.png") });

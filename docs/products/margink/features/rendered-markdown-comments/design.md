@@ -54,13 +54,14 @@ The composer follows a reference screen and screen recording the product owner p
 In the recording, the reviewer double-clicks a word, types immediately, and the comment appears under that line; the word keeps an underline, and the next word is commented on the same way.
 Its qualities are lightness and staying in the reading flow, so the composer is designed as part of the document rather than as a form.
 
-- **Start.** With commentable text selected, typing a printable character, or starting IME input, opens the composer and moves focus into it during that keydown, so the character lands in the composer.
-  The key is not cancelled, but it is stopped in the capture phase so GitHub's single-key shortcuts do not run.
-  Selecting alone, copying, and keys with Command, Control, or Alt do nothing, so selecting text to copy it costs nothing. An empty composer closes on Escape or on a click elsewhere.
-  A composer that already holds text is not replaced by a new selection.
+- **Start.** When the reviewer finishes selecting commentable text (mouse button released, or Shift released after extending the selection with the keyboard), Margink prepares the composer under the selection without showing it: it takes no space, and its text area receives focus.
+  Because the text area already has focus before any key is pressed, the first key, including the first key of IME input, goes to the text area, and GitHub's single-key shortcuts never see it.
+  Starting composition or the first input reveals the composer in place, and only then does Margink resolve the source location.
+  While nothing is typed, the selection stays highlighted with the page's selection color, copying copies the selected passage, and navigation keys (arrows, Page Up and Down, Home, End, Tab) or shortcuts with Command or Control other than copy close the hidden composer and restore the selection, so the page's own keys keep working.
+  An empty composer closes on Escape or on a click elsewhere. A composer that already holds text is not replaced by a new selection.
 - **Placement.** The composer is inserted under the visual line that contains the end of the selection, splitting the rendered paragraph there, and the rest of the paragraph continues below it.
   When that point is inside a link or other inline markup, the composer goes after that element. In code blocks and tables, or on a block's last line, it goes after the block.
-- **Marking the passage.** The selected words get a 2px underline in the composer's accent color, drawn with the CSS Custom Highlight API so GitHub's DOM is not wrapped or restyled.
+- **Marking the passage.** Once the composer is revealed, the selected words get a 2px underline in the composer's accent color, drawn with the CSS Custom Highlight API so GitHub's DOM is not wrapped or restyled.
 - **Composer.** A low-contrast card with a 1px border, a slightly raised background, and a 3px accent bar on the left. The reviewer's avatar comes first, and a borderless text area starts at one line and grows with its content.
   There are no labels or buttons inside the writing area. A small muted line under it names the target, and a muted text control at the right names the destination and the shortcut (for example "Post to GitHub ⌘Enter"); it is also the on-screen confirm action.
 - **Finished comment.** After publishing, the same card keeps the avatar and text, drops the accent bar as the recording's comments at rest do, and links to the comment on GitHub. The passage keeps a softer underline in the accent color.
@@ -128,7 +129,8 @@ A failed fetch is shown as an error with a retry action, distinct from "no comme
 
 ### Shortcuts
 
-The comment box handles `keydown` itself.
+The comment box handles `keydown` itself and stops its propagation, so GitHub's document-level shortcuts never receive keys typed in the composer.
+Focusing the composer before the first key, rather than moving focus during that key, is what keeps IME input intact: an input method that receives its first key in the page commits it as a raw letter before focus moves.
 While `event.isComposing` is true (or the legacy key code 229 is reported), the handler does nothing, so Enter only finishes IME conversion.
 The configured confirm chord triggers the same action as the confirm button.
 The default is Command+Enter on macOS and Control+Enter elsewhere, with plain Enter inserting a newline.
