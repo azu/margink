@@ -74,9 +74,14 @@ jobs:
       # Release Firefox installs only add-ons signed by Mozilla. The unlisted
       # channel signs the build for self-distribution without listing it on
       # addons.mozilla.org. Skipped until the AMO API key is configured.
+      # Mozilla can take up to a day to sign, longer under manual review, and
+      # web-ext stops waiting after 15 minutes. A late or failed signing must
+      # not block the Chrome release, so this step may fail; attach the .xpi
+      # later from the AMO Developer Hub with `gh release upload`.
       - name: Sign the Firefox package
         id: firefox
         if: steps.tag-check.outputs.exists == 'false' && env.AMO_CONFIGURED == 'true'
+        continue-on-error: true
         run: |
           npx --yes web-ext@10.8.0 sign \
             --source-dir .output/firefox-mv2 \
@@ -110,6 +115,8 @@ jobs:
         run: |
           if [ "$FIREFOX_SIGNED" = "true" ]; then
             FIREFOX="- 🦊 Firefox: signed .xpi attached"
+          elif [ "$AMO_CONFIGURED" = "true" ]; then
+            FIREFOX="- 🦊 Firefox: not attached; signing did not finish in time or failed. Download the signed file from the AMO Developer Hub once approved and run: gh release upload v$VERSION <file>.xpi"
           else
             FIREFOX="- 🦊 Firefox: not attached (AMO_API_KEY and AMO_API_SECRET are not set)"
           fi

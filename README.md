@@ -53,6 +53,8 @@ One-time setup:
 - Create the `Type: Release` label.
 - For the Firefox package, create API credentials at [addons.mozilla.org](https://addons.mozilla.org/developers/addon/api/key/) and save them as the repository secrets `AMO_API_KEY` and `AMO_API_SECRET`. Without them, releases include only the Chrome package.
 
+Mozilla can take up to a day to sign a version, and longer if it is chosen for manual review, while the workflow waits only 15 minutes. If signing does not finish in time, the release is still made with the Chrome package and the pull request comment says so. Once the version is signed, download the `.xpi` from the [Developer Hub](https://addons.mozilla.org/developers/) and attach it with `gh release upload v<version> <file>.xpi`.
+
 ## Status
 
 This is an early version. It covers selecting rendered text, resolving it to a source line, and publishing a line comment.
