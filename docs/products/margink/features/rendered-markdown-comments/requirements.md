@@ -62,6 +62,12 @@ Scenario: When a selection cannot be published as a line comment, the text is re
 - When: The reviewer attempts to publish a comment for the selection.
 - Then: No comment is attached to a guessed location or posted to the PR conversation; the extension explains the unavailable target and retains the text so the reviewer can reselect or explicitly collect it for copying.
 
+Scenario: When the reviewer starts another comment, unfinished comments stay open
+
+- Given: A comment input holds text that has not been confirmed.
+- When: The reviewer starts a comment on another passage or line.
+- Then: Both inputs stay open with their own text and target, and each can be confirmed or cancelled on its own.
+
 Scenario: When the comment is empty, confirming it does not create a comment
 
 - Given: The comment input contains no text other than whitespace.

@@ -50,7 +50,7 @@ a { color: inherit; text-decoration: underline; text-decoration-color: var(--fgC
 export interface CommentBoxOptions {
   chord: ConfirmChord;
   mac: boolean;
-  /** Where a confirmed comment goes, shown on the confirm control. */
+  /** Where a confirmed comment goes, shown as the confirm control's tooltip. */
   destination: string;
   /** The signed-in reviewer's avatar, shown like a comment's author. */
   avatarUrl?: string | null;
@@ -103,10 +103,11 @@ export class CommentBox {
     this.reviewButton = this.shadow.querySelector(".review")!;
 
     const chord = describeChord(options.chord, options.mac);
-    this.confirmButton.textContent = `${options.destination} ${chord}`;
+    // Short labels keep the target line readable; tooltips spell them out.
+    this.confirmButton.textContent = `Post ${chord}`;
     this.confirmButton.title = `${options.destination} (${chord})`;
     const review = hasReviewChord(options.chord) ? describeChord(reviewChord(options.chord), options.mac) : "";
-    this.reviewButton.textContent = review ? `Add to review ${review}` : "Add to review";
+    this.reviewButton.textContent = review ? `Review ${review}` : "Review";
     this.reviewButton.title = review
       ? `Add to your pending review; submit it in GitHub (${review})`
       : "Add to your pending review; submit it in GitHub";
@@ -194,8 +195,9 @@ export class CommentBox {
     this.textarea.focus({ preventScroll: true });
   }
 
-  setTarget(label: string): void {
+  setTarget(label: string, title = label): void {
     this.targetLabel.textContent = label;
+    this.targetLabel.title = title;
     this.ready = true;
     this.refreshButton();
   }
@@ -230,7 +232,7 @@ export class CommentBox {
    * Turn the composer into the finished comment: the same card without the
    * accent bar, the comment text, and a link to it on GitHub.
    */
-  showPosted(body: string, location: string, href: string, delivery: Delivery = "publish"): void {
+  showPosted(body: string, location: string, href: string, delivery: Delivery = "publish", title = location): void {
     const doc = this.host.ownerDocument;
     this.card.dataset.state = "posted";
     this.card.setAttribute("aria-label", "Margink comment, posted");
@@ -245,9 +247,9 @@ export class CommentBox {
     link.href = href;
     link.target = "_blank";
     link.rel = "noopener";
-    link.textContent = delivery === "publish"
-      ? `Posted on GitHub · ${location}`
-      : `Added to your review (pending) · ${location} · Submit it on GitHub`;
+    link.textContent = delivery === "publish" ? `Posted · ${location}` : `Pending review · ${location}`;
+    link.title = delivery === "publish" ? `Posted on GitHub: ${title}` : `Added to your pending review: ${title}. Submit the review on GitHub.`;
+    this.targetLabel.title = "";
     if (delivery === "review") this.card.dataset.pending = "";
     this.targetLabel.append(link);
     this.host.setAttribute(UI_ATTRIBUTE, "posted-comment");

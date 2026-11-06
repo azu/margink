@@ -1,5 +1,5 @@
 import { buildCommentBody, isBlankComment } from "../lib/comment-body";
-import { codeTableOf, CODE_SELECTORS, insertCodeRow, resolveCodeRange, setCodeRowCollapsed } from "../lib/code-diff";
+import { codeCellOf, codeTableOf, insertCodeRow, resolveCodeRange, setCodeRowCollapsed } from "../lib/code-diff";
 import { buildSourceIndex, type SourceIndex } from "../lib/normalize";
 import { blockRange, insertAfterBlock, insertBeneathLine, lineBlockAt, renderedSide, SELECTORS, sideOfBlock, sideOfRange } from "../lib/rendered";
 import { RESOLVE_MESSAGES, resolveSelection } from "../lib/resolve";
@@ -12,7 +12,8 @@ import { AddButton } from "./add-button";
 import { CommentBox, UI_ATTRIBUTE } from "./comment-box";
 
 /** Elements whose click does something of its own, so it never starts a comment. */
-const INTERACTIVE = "a, button, summary, label, input, select, textarea, [contenteditable], [role=button], [tabindex]";
+// tabindex="-1" only makes an element focusable by script, as GitHub's diff grid cells are.
+const INTERACTIVE = "a, button, summary, label, input, select, textarea, [contenteditable], [role=button], [tabindex]:not([tabindex='-1'])";
 
 const ARMED_HIGHLIGHT = "margink-armed";
 const DRAFT_HIGHLIGHT = "margink-draft";
@@ -37,7 +38,7 @@ interface Draft {
   /** Whether the comment is on a whole block from the add button. */
   wholeBlock: boolean;
   /** For a comment on a source diff, the table row that holds the composer. */
-  codeRow: HTMLTableRowElement | null;
+  codeRow: HTMLElement | null;
   target: LineTarget | null;
   comparison: Comparison | null;
   root: Element;
@@ -48,6 +49,9 @@ interface Draft {
 /** Wires selection, resolution, the comment box, and publication together. */
 export class Controller {
   private readonly posted: Range[] = [];
+  /** Every open composer, so several comments can be written at once. */
+  private readonly drafts = new Set<Draft>();
+  /** The composer opened last; only it can be hidden (armed) or blank. */
   private draft: Draft | null = null;
   private comparison: { key: string; value: Promise<Comparison> } | null = null;
   private readonly sources = new Map<string, Promise<SourceIndex>>();
@@ -79,11 +83,13 @@ export class Controller {
       if (e.key === "Shift") this.onSelectionFinished();
     });
     // An empty composer is dismissed by clicking elsewhere, like a popover.
+    // Composers that hold text stay open, so several comments can be drafted.
     this.doc.addEventListener("mousedown", (e) => {
-      const draft = this.draft;
-      if (!draft || !isBlankComment(draft.box.body)) return;
-      if (e.target instanceof Node && draft.box.host.contains(e.target)) return;
-      this.closeDraft();
+      for (const draft of [...this.drafts]) {
+        if (!isBlankComment(draft.box.body)) continue;
+        if (e.target instanceof Node && draft.box.host.contains(e.target)) continue;
+        this.closeDraft(draft);
+      }
     });
     // Hovering a rendered block shows the add button beside it, as GitHub
     // shows "+" beside a hovered line in a source diff.
@@ -129,8 +135,6 @@ export class Controller {
       return;
     }
     const range = sel.getRangeAt(0);
-    // A composer that already holds text is not replaced by a new selection.
-    if (this.draft && !isBlankComment(this.draft.box.body)) return;
     if (this.selectionRoot(range)) this.armDraft(range.cloneRange());
     else if (this.codeRoot(range)) this.armCodeDraft(range.cloneRange(), false);
   }
@@ -143,10 +147,9 @@ export class Controller {
     if (!(target instanceof Node)) return;
     const el = elementOf(target);
     if (!el || el.closest(INTERACTIVE) || isMarginkUi(el)) return;
-    if (this.draft && !isBlankComment(this.draft.box.body)) return;
     // In a source diff, a click on a line works like GitHub's "+" on that line.
-    const cell = el.closest(CODE_SELECTORS.code);
-    if (cell && codeTableOf(cell)) {
+    const cell = codeCellOf(el);
+    if (cell) {
       const caret = this.doc.getSelection();
       if (caret && caret.rangeCount > 0 && cell.contains(caret.getRangeAt(0).startContainer)) {
         this.armCodeDraft(caret.getRangeAt(0).cloneRange(), true);
@@ -156,7 +159,6 @@ export class Controller {
     const root = el.closest(SELECTORS.proseRoot);
     const block = root ? lineBlockAt(el, root) : null;
     if (!root || !block) return;
-    if (this.draft && !isBlankComment(this.draft.box.body)) return;
     const draft = this.openDraft(blockRange(block), root, true);
     if (!draft) return;
     draft.box.arm();
@@ -184,26 +186,21 @@ export class Controller {
     if (!table) return;
     const resolved = resolveCodeRange(range);
     if (!resolved.ok && resolved.reason === "empty-selection") return;
-    const endRow = resolved.ok ? resolved.endRow : elementOf(range.endContainer)?.closest("tr");
+    const endRow = resolved.ok ? resolved.endRow : (elementOf(range.endContainer)?.closest<HTMLElement>("tr, [role=row]") ?? null);
     if (!endRow) return;
     const draft = this.openDraft(range, table, wholeLine);
     if (!draft) return;
     // A part of one line is quoted, so readers see which part is meant;
     // GitHub already shows whole lines above the comment.
     const text = range.toString();
-    draft.quote = !wholeLine && resolved.ok && resolved.startLine === resolved.endLine && text.trim() !== endRow.querySelector(CODE_SELECTORS.code)?.textContent?.trim() ? text : "";
-    draft.codeRow = insertCodeRow(endRow as HTMLTableRowElement, draft.box.host, UI_ATTRIBUTE);
+    draft.quote = !wholeLine && resolved.ok && resolved.startLine === resolved.endLine && text.trim() !== (codeCellOf(range.startContainer)?.textContent?.trim() ?? "") ? text : "";
+    draft.codeRow = insertCodeRow(endRow, draft.box.host, UI_ATTRIBUTE);
     draft.box.arm(wholeLine ? undefined : text);
     this.focusDraft(draft);
   }
 
   /** The add button was clicked: comment on the whole block, starting now. */
   startBlockDraft(block: Element, root: Element): void {
-    // A composer that already holds text is not replaced; it gets focus back.
-    if (this.draft && !isBlankComment(this.draft.box.body)) {
-      this.draft.box.focus();
-      return;
-    }
     const draft = this.openDraft(blockRange(block), root, true);
     if (!draft) return;
     this.doc.getSelection()?.removeAllRanges();
@@ -215,19 +212,23 @@ export class Controller {
   private openDraft(range: Range, root: Element, wholeBlock: boolean): Draft | null {
     const pull = parsePullUrl(this.doc.location.href);
     if (!pull) return null;
-    this.closeDraft();
+    // A blank composer gives way to the new one; composers with text stay.
+    for (const open of [...this.drafts]) {
+      if (isBlankComment(open.box.body)) this.closeDraft(open);
+    }
     const box = new CommentBox(this.doc, {
       chord: DEFAULT_CHORD,
       mac: this.mac,
       destination: "Post to GitHub",
       avatarUrl: viewerAvatarUrl(this.doc),
-      onConfirm: (body, delivery) => void this.confirm(body, delivery),
-      onCancel: () => this.closeDraft(),
+      onConfirm: (body, delivery) => void this.confirm(draft, body, delivery),
+      onCancel: () => this.closeDraft(draft),
       onReveal: () => void this.revealDraft(draft),
-      onDisarm: () => this.closeDraft({ restoreSelection: !wholeBlock }),
+      onDisarm: () => this.closeDraft(draft, { restoreSelection: !wholeBlock }),
     });
     const draft: Draft = { pull, box, range, root, quote: wholeBlock ? "" : range.toString(), wholeBlock, codeRow: null, target: null, comparison: null, parent: null };
     this.draft = draft;
+    this.drafts.add(draft);
     return draft;
   }
 
@@ -239,7 +240,7 @@ export class Controller {
 
   /** The reviewer started typing: show the composer and resolve its target. */
   private async revealDraft(draft: Draft): Promise<void> {
-    if (this.draft !== draft) return;
+    if (!this.drafts.has(draft)) return;
     this.paintHighlights();
     const { box, range, root, pull } = draft;
     if (draft.codeRow) {
@@ -262,16 +263,16 @@ export class Controller {
       const source = await this.loadSource(pull, oid, path);
       const rendered = renderedSide(range, root, side);
       const result = resolveSelection(rendered.text, rendered.start, rendered.end, source);
-      if (this.draft !== draft) return;
+      if (!this.drafts.has(draft)) return;
       if (!result.ok) {
         box.setUnavailable(RESOLVE_MESSAGES[result.reason]);
         return;
       }
       draft.comparison = comparison;
       draft.target = { path, side, startLine: result.startLine, endLine: result.endLine };
-      box.setTarget(describeTarget(draft.target));
+      box.setTarget(shortTarget(draft.target), describeTarget(draft.target));
     } catch (error) {
-      if (this.draft === draft) box.setUnavailable(error instanceof Error ? error.message : String(error));
+      if (this.drafts.has(draft)) box.setUnavailable(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -285,22 +286,21 @@ export class Controller {
     try {
       const comparison = await this.loadComparison(pull);
       const path = await findFilePath(root, comparison);
-      if (this.draft !== draft) return;
+      if (!this.drafts.has(draft)) return;
       if (!path) {
         box.setUnavailable("Margink could not tell which file this line belongs to.");
         return;
       }
       draft.comparison = comparison;
       draft.target = { path, side: resolved.side, startLine: resolved.startLine, endLine: resolved.endLine };
-      box.setTarget(describeTarget(draft.target));
+      box.setTarget(shortTarget(draft.target), describeTarget(draft.target));
     } catch (error) {
-      if (this.draft === draft) box.setUnavailable(error instanceof Error ? error.message : String(error));
+      if (this.drafts.has(draft)) box.setUnavailable(error instanceof Error ? error.message : String(error));
     }
   }
 
-  private async confirm(body: string, delivery: Delivery): Promise<void> {
-    const draft = this.draft;
-    if (!draft) return;
+  private async confirm(draft: Draft, body: string, delivery: Delivery): Promise<void> {
+    if (!this.drafts.has(draft)) return;
     const { box, target, comparison } = draft;
     if (isBlankComment(body)) {
       box.showStatus("Write a comment first.", "error");
@@ -322,9 +322,10 @@ export class Controller {
       // The composer stays where it is and becomes the finished comment.
       // A pending comment is submitted from GitHub's own review control on the files page.
       const href = delivery === "publish" ? (result.url ?? `${pullPath(draft.pull)}/files`) : `${pullPath(draft.pull)}/files`;
-      box.showPosted(body, describeTarget(target), href, delivery);
+      box.showPosted(body, shortTarget(target), href, delivery, describeTarget(target));
       this.posted.push(draft.range);
-      this.draft = null;
+      this.drafts.delete(draft);
+      if (this.draft === draft) this.draft = null;
       this.paintHighlights();
       return;
     }
@@ -335,10 +336,9 @@ export class Controller {
     box.showStatus(result.reason, "error");
   }
 
-  private closeDraft(options: { restoreSelection?: boolean } = {}): void {
-    const draft = this.draft;
-    this.draft = null;
-    if (draft) {
+  private closeDraft(draft: Draft, options: { restoreSelection?: boolean } = {}): void {
+    if (this.draft === draft) this.draft = null;
+    if (this.drafts.delete(draft)) {
       if (draft.codeRow) draft.codeRow.remove();
       else draft.box.host.remove();
       draft.parent?.normalize(); // Rejoin the text split for the composer.
@@ -357,10 +357,10 @@ export class Controller {
     if (!css?.highlights || !HighlightCtor) return;
     // While armed, the passage looks selected; once typing starts it is underlined.
     const armed = this.draft?.box.isArmed && !this.draft.wholeBlock ? this.draft.range : null;
-    const drafting = this.draft && !this.draft.box.isArmed ? this.draft.range : null;
+    const drafting = [...this.drafts].filter((d) => !d.box.isArmed).map((d) => d.range);
     if (armed) css.highlights.set(ARMED_HIGHLIGHT, new HighlightCtor(armed));
     else css.highlights.delete(ARMED_HIGHLIGHT);
-    if (drafting) css.highlights.set(DRAFT_HIGHLIGHT, new HighlightCtor(drafting));
+    if (drafting.length > 0) css.highlights.set(DRAFT_HIGHLIGHT, new HighlightCtor(...drafting));
     else css.highlights.delete(DRAFT_HIGHLIGHT);
     css.highlights.set(POSTED_HIGHLIGHT, new HighlightCtor(...this.posted));
   }
@@ -407,6 +407,13 @@ export function describeTarget(target: LineTarget): string {
   const version = target.side === "base" ? "before the change" : "after the change";
   const lines = target.startLine === target.endLine ? `line ${target.startLine}` : `lines ${target.startLine}–${target.endLine}`;
   return `${target.path} · ${lines} (${version})`;
+}
+
+/** A compact target, such as "guide.md L3" or "guide.md L3–5 (before)". */
+export function shortTarget(target: LineTarget): string {
+  const name = target.path.slice(target.path.lastIndexOf("/") + 1);
+  const lines = target.startLine === target.endLine ? `L${target.startLine}` : `L${target.startLine}–${target.endLine}`;
+  return `${name} ${lines}${target.side === "base" ? " (before)" : ""}`;
 }
 
 /** Find the changed file a rendered root belongs to. */

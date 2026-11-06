@@ -64,3 +64,11 @@ describe("keys in an armed composer", () => {
     expect(isPageKey(k("f", { metaKey: true }))).toBe(true);
   });
 });
+
+import { describeChord } from "../src/lib/shortcut";
+describe("shortcut labels", () => {
+  it("are short on macOS and spelled out elsewhere", () => {
+    expect(describeChord({ primary: true, shift: true, alt: false }, true)).toBe("⇧⌘↵");
+    expect(describeChord({ primary: true, shift: false, alt: false }, false)).toBe("Ctrl+Enter");
+  });
+});
