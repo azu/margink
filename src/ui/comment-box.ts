@@ -1,4 +1,4 @@
-import { describeChord, hasReviewChord, keyAction, reviewChord, type ConfirmChord } from "../lib/shortcut";
+import { alternateChord, describeChord, hasAlternateChord, keyAction, type ConfirmChord } from "../lib/shortcut";
 import type { Delivery } from "../github/publish";
 
 export const UI_ATTRIBUTE = "data-margink-ui";
@@ -50,7 +50,7 @@ a { color: inherit; text-decoration: underline; text-decoration-color: var(--fgC
 export interface CommentBoxOptions {
   chord: ConfirmChord;
   mac: boolean;
-  /** Where a confirmed comment goes, shown as the confirm control's tooltip. */
+  /** Where a published comment goes, shown as the publish control's tooltip. */
   destination: string;
   /** The signed-in reviewer's avatar, shown like a comment's author. */
   avatarUrl?: string | null;
@@ -70,7 +70,7 @@ export class CommentBox {
   private readonly textarea: HTMLTextAreaElement;
   private readonly targetLabel: HTMLElement;
   private readonly status: HTMLElement;
-  private readonly confirmButton: HTMLButtonElement;
+  private readonly publishButton: HTMLButtonElement;
   private readonly reviewButton: HTMLButtonElement;
   private busy = false;
   private ready = false;
@@ -89,8 +89,8 @@ export class CommentBox {
         <div class="footer">
           <div class="where">Locating the selected text…</div>
           <span class="actions">
+            <button type="button" class="send publish" disabled></button>
             <button type="button" class="send review" disabled></button>
-            <button type="button" class="send confirm" disabled></button>
           </span>
         </div>
         <div class="status" role="status" aria-live="polite"></div>
@@ -99,18 +99,18 @@ export class CommentBox {
     this.textarea = this.shadow.querySelector("textarea")!;
     this.targetLabel = this.shadow.querySelector(".where")!;
     this.status = this.shadow.querySelector(".status")!;
-    this.confirmButton = this.shadow.querySelector(".confirm")!;
+    this.publishButton = this.shadow.querySelector(".publish")!;
     this.reviewButton = this.shadow.querySelector(".review")!;
 
-    const chord = describeChord(options.chord, options.mac);
+    // As in GitHub's diff comment box, the confirm chord adds the comment to
+    // the pending review and the chord with Shift publishes it at once.
     // Short labels keep the target line readable; tooltips spell them out.
-    this.confirmButton.textContent = `Post ${chord}`;
-    this.confirmButton.title = `${options.destination} (${chord})`;
-    const review = hasReviewChord(options.chord) ? describeChord(reviewChord(options.chord), options.mac) : "";
-    this.reviewButton.textContent = review ? `Review ${review}` : "Review";
-    this.reviewButton.title = review
-      ? `Add to your pending review; submit it in GitHub (${review})`
-      : "Add to your pending review; submit it in GitHub";
+    const review = describeChord(options.chord, options.mac);
+    this.reviewButton.textContent = `Review ${review}`;
+    this.reviewButton.title = `Add to your pending review; submit it in GitHub (${review})`;
+    const publish = hasAlternateChord(options.chord) ? describeChord(alternateChord(options.chord), options.mac) : "";
+    this.publishButton.textContent = publish ? `Post ${publish}` : "Post";
+    this.publishButton.title = publish ? `${options.destination} (${publish})` : options.destination;
     this.textarea.placeholder = "Comment";
     const avatar = this.shadow.querySelector<HTMLImageElement>(".avatar")!;
     // A missing avatar leaves the neutral circle instead of a broken image.
@@ -119,7 +119,7 @@ export class CommentBox {
     }, { once: true });
     if (options.avatarUrl) avatar.src = options.avatarUrl;
 
-    this.confirmButton.addEventListener("click", () => this.confirm("publish"));
+    this.publishButton.addEventListener("click", () => this.confirm("publish"));
     this.reviewButton.addEventListener("click", () => this.confirm("review"));
     // Typing or IME composition in an armed composer reveals it in place.
     // The text area keeps focus, so the composition continues uninterrupted.
@@ -145,9 +145,9 @@ export class CommentBox {
       }
       // "newline" and "none" keep the textarea's default behavior.
       const action = keyAction(event, options.chord, options.mac);
-      if (action === "confirm" || action === "review") {
+      if (action === "confirm" || action === "alternate") {
         event.preventDefault();
-        this.confirm(action === "confirm" ? "publish" : "review");
+        this.confirm(action === "confirm" ? "review" : "publish");
       }
     });
     this.textarea.addEventListener("keyup", (e) => e.stopPropagation());
@@ -240,7 +240,7 @@ export class CommentBox {
     text.className = "text";
     text.textContent = body.trim();
     this.textarea.replaceWith(text);
-    this.confirmButton.parentElement?.remove();
+    this.publishButton.parentElement?.remove();
     this.status.textContent = "";
     this.targetLabel.textContent = "";
     const link = doc.createElement("a");
@@ -261,8 +261,8 @@ export class CommentBox {
   }
 
   private refreshButton(): void {
-    this.confirmButton.disabled = this.busy || !this.ready;
-    this.reviewButton.disabled = this.confirmButton.disabled;
+    this.publishButton.disabled = this.busy || !this.ready;
+    this.reviewButton.disabled = this.publishButton.disabled;
   }
 
   private confirm(delivery: Delivery): void {
