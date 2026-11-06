@@ -99,6 +99,17 @@ Text that has no source counterpart in the rendered view, such as Mermaid diagra
 
 Resolution failure keeps the comment box open with the reason (for example "This text appears several times and the extension cannot tell which one you selected"), so the reviewer can select again or switch to stock mode explicitly.
 
+### Source diffs
+
+In GitHub's source diff table (`table.diff-table`, unified or split), the same hidden composer is prepared when a selection is finished or a code line is clicked, so typing starts a comment there too.
+No text matching is needed: each code cell (`td.blob-code`) has its line number in the page.
+In the split view, a code cell's own number is the line-number cell right before it. In the unified view, a removed line (`blob-code-deletion`) uses its left number and the version before the change, and every other line uses its right number and the version after the change, as GitHub's own comments do.
+The number cell's id ends in `L<n>` or `R<n>`, which gives the version.
+A selection counts only the lines whose own text is selected, so a selection that ends at the start of the next line does not include it; lines from both versions are refused like a mixed rendered selection.
+The composer goes in a new full-width table row after the last selected line, like GitHub's inline comment rows. While the composer is hidden, the row has no padding or height, so the code does not move.
+A selection within one line that is not the whole line is quoted, as on rendered text; a click or a selection of whole lines is not, because GitHub shows those lines above the comment.
+Clicks on GitHub's own "+" button and other controls in the table are left to GitHub.
+
 ### Publishing and stocking
 
 In GitHub mode, the confirm chord (Command+Enter on macOS, Control+Enter elsewhere) publishes immediately, and the same chord with Shift adds the comment to the reviewer's pending review.

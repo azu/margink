@@ -26,6 +26,12 @@ const page = `<!doctype html><html><head><title>PR</title><meta name="user-login
     <p><ins>Repeat me.</ins></p>
     <p><ins>Use the Node version in the version file and pnpm from the package manager field. CI reads the version file through the setup action, and local checks do not replace CI.</ins></p>
   </article></div>
+<div id="diff-c0de" class="file" data-tagsearch-path="src/app.js" style="margin-top: 24px"><table class="diff-table" style="font-family: monospace; border-collapse: collapse; width: 100%"><tbody>
+    <tr><td id="diff-c0deL1" data-line-number="1" class="blob-num blob-num-context"></td><td id="diff-c0deR1" data-line-number="1" class="blob-num blob-num-context js-blob-rnum"></td><td class="blob-code blob-code-context"><button type="button" class="add-line-comment">+</button><span class="blob-code-inner">const a = 1;</span></td></tr>
+    <tr><td id="diff-c0deL2" data-line-number="2" class="blob-num blob-num-deletion"></td><td class="blob-num blob-num-deletion empty-cell"></td><td class="blob-code blob-code-deletion"><span class="blob-code-inner">const b = 2;</span></td></tr>
+    <tr><td class="blob-num blob-num-addition empty-cell"></td><td id="diff-c0deR2" data-line-number="2" class="blob-num blob-num-addition js-blob-rnum"></td><td class="blob-code blob-code-addition"><span class="blob-code-inner">const b = 3;</span></td></tr>
+    <tr><td id="diff-c0deL3" data-line-number="3" class="blob-num blob-num-context"></td><td id="diff-c0deR3" data-line-number="3" class="blob-num blob-num-context js-blob-rnum"></td><td class="blob-code blob-code-context"><span class="blob-code-inner">export { a, b };</span></td></tr>
+  </tbody></table></div>
   <div style="height: 2000px"></div>
 </div>
 <script>window.pageShortcuts = []; document.addEventListener("keydown", (e) => window.pageShortcuts.push(e.key));</script>
@@ -58,9 +64,9 @@ const tab = await context.newPage();
 await tab.goto("https://github.com/o/r/pull/1/files");
 await tab.waitForTimeout(500);
 
-async function select(text, nth = 0) {
-  await tab.evaluate(([text, nth]) => {
-    const walker = document.createTreeWalker(document.querySelector(".prose-diff"), NodeFilter.SHOW_TEXT);
+async function select(text, nth = 0, within = ".prose-diff") {
+  await tab.evaluate(([text, nth, within]) => {
+    const walker = document.createTreeWalker(document.querySelector(within), NodeFilter.SHOW_TEXT);
     let seen = 0;
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const at = n.data.indexOf(text);
@@ -76,7 +82,7 @@ async function select(text, nth = 0) {
       }
     }
     throw new Error("not found " + text);
-  }, [text, nth]);
+  }, [text, nth, within]);
   await tab.waitForTimeout(50);
 }
 
@@ -242,11 +248,44 @@ assert.equal(posts.at(-1).text, "Pending note");
 assert.match(await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Pending note" }).locator(".where").innerText(), /Added to your review \(pending\)/);
 assert.equal(posts.filter((p) => p.submitBatch === true).length, beforeReview, "earlier comments were published immediately");
 
+// 11. Source diffs work the same way: select part of a line and type.
+await select("b = 3", 0, ".diff-table");
+assert.equal(await visibleBoxes(), 0);
+await tab.keyboard.type("Why 3?");
+await assert.doesNotReject(box().locator(".where", { hasText: "src/app.js · line 2 (after the change)" }).waitFor({ timeout: 5000 }));
+await tab.keyboard.press(`${mod}+Enter`);
+await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Why 3?" }).waitFor({ timeout: 5000 });
+assert.deepEqual(
+  { path: posts.at(-1).path, line: posts.at(-1).line, side: posts.at(-1).side, text: posts.at(-1).text },
+  { path: "src/app.js", line: 2, side: "right", text: "> b = 3\n\nWhy 3?" },
+);
+assert.equal(await tab.locator('[data-margink-ui="code-row"]').count(), 1, "the comment stays in its own table row");
+
+//     A click on a removed line and typing comments on that base line;
+//     the click alone does not move the code.
+const exportRow = tab.locator("tr", { hasText: "export" });
+const rowTop = () => exportRow.evaluate((r) => r.getBoundingClientRect().top + scrollY);
+const exportTop = await rowTop();
+await tab.locator(".blob-code-inner", { hasText: "const b = 2;" }).click();
+await tab.waitForTimeout(50);
+assert.equal(await rowTop(), exportTop, "a click alone does not move the code");
+await tab.keyboard.type("Gone");
+await assert.doesNotReject(box().locator(".where", { hasText: "src/app.js · line 2 (before the change)" }).waitFor({ timeout: 5000 }));
+await box().locator("textarea").fill("");
+await box().locator("textarea").press("Escape");
+assert.equal(await tab.locator('[data-margink-ui="code-row"]').count(), 1, "cancelling removes the composer row");
+
+//     GitHub's own "+" on a line is left alone.
+await tab.locator("button.add-line-comment").click();
+await tab.waitForTimeout(50);
+assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0);
+
 await select("pnpm");
 await tab.keyboard.type("こういう感じで");
 await tab.locator("p", { hasText: "Repeat me." }).first().hover();
 await addButton.waitFor({ state: "visible", timeout: 2000 });
 
+if (process.env.SCREENSHOT_CODE) await tab.locator("#diff-c0de").screenshot({ path: process.env.SCREENSHOT_CODE });
 await tab.screenshot({ path: process.env.SCREENSHOT ?? join(tmpdir(), "margink-e2e.png") });
 if (process.env.SCREENSHOT_DARK) {
   await tab.emulateMedia({ colorScheme: "dark" });
