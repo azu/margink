@@ -128,3 +128,66 @@ export function anchorBlock(range: Range, root: Element): Element {
   }
   return outer;
 }
+
+/** Blocks whose lines are not split by an inline comment. */
+const UNSPLITTABLE = "pre, table, svg, math";
+
+/**
+ * Insert `host` directly beneath the rendered line that holds the end of
+ * the selection, so the comment sits right under the words it is about.
+ *
+ * The rendered paragraph is split at the next visual line: the first
+ * character that lays out below the selection's last line. When that point
+ * is inside inline markup (a link, emphasis, code), the host goes after
+ * that whole inline element instead, so it never ends up inside a link.
+ * Without layout information, inside code blocks and tables, or on the
+ * block's last line, the host goes after the block.
+ */
+export function insertBeneathLine(range: Range, root: Element, host: Element): void {
+  const fallback = () => anchorBlock(range, root).after(host);
+  const endEl = range.endContainer.nodeType === Node.ELEMENT_NODE ? (range.endContainer as Element) : range.endContainer.parentElement;
+  const block = endEl?.closest(BLOCKS);
+  if (!block || !root.contains(block) || block.closest(UNSPLITTABLE)) return fallback();
+
+  const rects = range.getClientRects();
+  const last = rects[rects.length - 1];
+  if (!last || last.height === 0) return fallback();
+  const lineBottom = last.bottom;
+
+  const doc = block.ownerDocument;
+  const walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  walker.currentNode = range.endContainer;
+  let node: Node | null = range.endContainer.nodeType === Node.TEXT_NODE ? range.endContainer : walker.nextNode();
+  let from = range.endContainer.nodeType === Node.TEXT_NODE ? range.endOffset : 0;
+  const probe = doc.createRange();
+
+  for (; node; node = walker.nextNode(), from = 0) {
+    const text = node as Text;
+    if (closestOrSelf(text, SELECTORS.skipped, root)) continue;
+    for (let i = from; i < text.data.length; i++) {
+      if (/\s/.test(text.data[i]!)) continue;
+      probe.setStart(text, i);
+      probe.setEnd(text, i + 1);
+      const r = probe.getBoundingClientRect();
+      if (r.height > 0 && r.top >= lineBottom - 1) {
+        placeBefore(text, i, block, host);
+        return;
+      }
+    }
+  }
+  fallback();
+}
+
+function placeBefore(text: Text, offset: number, block: Element, host: Element): void {
+  // Inline markup other than insertion/deletion wrappers must not contain the host.
+  let inline: Element | null = null;
+  for (let p = text.parentElement; p && p !== block; p = p.parentElement) {
+    if (!p.matches("ins, del, .added, .removed, span")) inline = p;
+  }
+  if (inline) {
+    inline.after(host);
+    return;
+  }
+  const rest = offset > 0 ? text.splitText(offset) : text;
+  rest.before(host);
+}

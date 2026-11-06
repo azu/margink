@@ -36,3 +36,20 @@ describe("comment body", () => {
     expect(isBlankComment("x")).toBe(false);
   });
 });
+
+import { startsComment } from "../src/ui/controller";
+
+describe("typing to start a comment", () => {
+  const k = (key: string, over: Partial<KeyboardEvent> = {}) => ({ key, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false, ...over });
+  it("starts on printable keys and IME input", () => {
+    expect(startsComment(k("k"))).toBe(true);
+    expect(startsComment(k("Process"))).toBe(true);
+  });
+  it("ignores shortcuts, navigation keys, and space", () => {
+    expect(startsComment(k("c", { metaKey: true }))).toBe(false);
+    expect(startsComment(k("c", { ctrlKey: true }))).toBe(false);
+    expect(startsComment(k("ArrowDown"))).toBe(false);
+    expect(startsComment(k(" "))).toBe(false);
+    expect(startsComment(k("Enter"))).toBe(false);
+  });
+});

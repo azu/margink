@@ -1,6 +1,6 @@
 import { buildCommentBody, isBlankComment } from "../lib/comment-body";
 import { buildSourceIndex, type SourceIndex } from "../lib/normalize";
-import { anchorBlock, renderedSide, SELECTORS, sideOfRange } from "../lib/rendered";
+import { insertBeneathLine, renderedSide, SELECTORS, sideOfRange } from "../lib/rendered";
 import { RESOLVE_MESSAGES, resolveSelection } from "../lib/resolve";
 import { DEFAULT_CHORD, isMacPlatform } from "../lib/shortcut";
 import { loadComparison, sha256Hex, type Comparison, type FetchLike } from "../github/comparison";
@@ -9,12 +9,16 @@ import { parsePullUrl, pullPath, type PullRef } from "../github/pull";
 import { loadSourceLines } from "../github/source";
 import { CommentBox, UI_ATTRIBUTE } from "./comment-box";
 
-const HIGHLIGHT = "margink-selection";
+const DRAFT_HIGHLIGHT = "margink-draft";
+const POSTED_HIGHLIGHT = "margink-posted";
 
 const PAGE_STYLE = `
-::highlight(${HIGHLIGHT}) { background-color: rgba(212, 167, 44, .4); }
-[${UI_ATTRIBUTE}="marker"] { all: initial; display: inline-block; margin: 2px 0 8px; cursor: pointer; font: 12px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fgColor-accent, #0969da); }
-[${UI_ATTRIBUTE}="trigger"] { all: initial; position: fixed; z-index: 2147483000; padding: 2px 10px; border-radius: 6px; cursor: pointer; font: 600 12px/1.8 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #fff; background: #1f883d; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+::highlight(${DRAFT_HIGHLIGHT}) { text-decoration: underline 2px #8250df; text-underline-offset: 4px; }
+::highlight(${POSTED_HIGHLIGHT}) { text-decoration: underline 2px rgba(130, 80, 223, .55); text-underline-offset: 4px; }
+@media (prefers-color-scheme: dark) {
+  ::highlight(${DRAFT_HIGHLIGHT}) { text-decoration-color: #ab7aca; }
+  ::highlight(${POSTED_HIGHLIGHT}) { text-decoration-color: rgba(171, 122, 202, .55); }
+}
 `;
 
 interface Draft {
@@ -24,12 +28,13 @@ interface Draft {
   selectedText: string;
   target: LineTarget | null;
   comparison: Comparison | null;
-  anchor: Element;
+  /** The element the composer was inserted into, merged back on cancel. */
+  parent: Node | null;
 }
 
 /** Wires selection, resolution, the comment box, and publication together. */
 export class Controller {
-  private trigger: HTMLButtonElement | null = null;
+  private readonly posted: Range[] = [];
   private draft: Draft | null = null;
   private comparison: { key: string; value: Promise<Comparison> } | null = null;
   private readonly sources = new Map<string, Promise<SourceIndex>>();
@@ -47,13 +52,16 @@ export class Controller {
     style.setAttribute(UI_ATTRIBUTE, "style");
     style.textContent = PAGE_STYLE;
     this.doc.head.append(style);
-    this.doc.addEventListener("mouseup", () => setTimeout(() => this.onSelectionMaybeChanged(), 0));
-    this.doc.addEventListener("keyup", (e) => {
-      if (e.shiftKey) this.onSelectionMaybeChanged();
-    });
-    this.doc.addEventListener("selectionchange", () => {
-      const sel = this.doc.getSelection();
-      if (!sel || sel.isCollapsed) this.hideTrigger();
+    // Typing while commentable text is selected starts a comment. The capture
+    // phase runs before GitHub's single-key shortcuts, and the key is not
+    // cancelled, so it lands in the composer that receives focus here.
+    this.doc.defaultView?.addEventListener("keydown", (e) => this.onKeyDown(e), true);
+    // An empty composer is dismissed by clicking elsewhere, like a popover.
+    this.doc.addEventListener("mousedown", (e) => {
+      const draft = this.draft;
+      if (!draft || !isBlankComment(draft.box.body)) return;
+      if (e.target instanceof Node && draft.box.host.contains(e.target)) return;
+      this.closeDraft();
     });
   }
 
@@ -66,46 +74,17 @@ export class Controller {
     return start;
   }
 
-  private onSelectionMaybeChanged(): void {
+  private onKeyDown(event: KeyboardEvent): void {
+    if (!startsComment(event) || isEditable(this.doc.activeElement)) return;
     const sel = this.doc.getSelection();
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) {
-      this.hideTrigger();
-      return;
-    }
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) return;
     if (!parsePullUrl(this.doc.location.href)) return;
     const range = sel.getRangeAt(0);
-    const root = this.selectionRoot(range);
-    if (!root) {
-      this.hideTrigger();
-      return;
-    }
-    this.showTrigger(range);
-  }
-
-  private showTrigger(range: Range): void {
-    if (!this.trigger) {
-      const button = this.doc.createElement("button");
-      button.type = "button";
-      button.setAttribute(UI_ATTRIBUTE, "trigger");
-      button.textContent = "Comment";
-      // Keep the selection when the button is pressed.
-      button.addEventListener("mousedown", (e) => e.preventDefault());
-      button.addEventListener("click", () => {
-        const sel = this.doc.getSelection();
-        if (sel && sel.rangeCount > 0) void this.openDraft(sel.getRangeAt(0).cloneRange());
-        this.hideTrigger();
-      });
-      this.trigger = button;
-    }
-    const rects = range.getClientRects();
-    const last = rects[rects.length - 1] ?? range.getBoundingClientRect();
-    this.trigger.style.left = `${Math.max(4, last.right + 4)}px`;
-    this.trigger.style.top = `${Math.max(4, last.bottom + 4)}px`;
-    if (!this.trigger.isConnected) this.doc.body.append(this.trigger);
-  }
-
-  private hideTrigger(): void {
-    this.trigger?.remove();
+    if (!this.selectionRoot(range)) return;
+    // A composer that already holds text is not replaced by a new selection.
+    if (this.draft && !isBlankComment(this.draft.box.body)) return;
+    event.stopPropagation();
+    void this.openDraft(range.cloneRange());
   }
 
   /** Open the comment box for a selection, keeping any text from an earlier draft. */
@@ -120,16 +99,16 @@ export class Controller {
     const box = new CommentBox(this.doc, {
       chord: DEFAULT_CHORD,
       mac: this.mac,
-      modeLabel: "Post to GitHub · published immediately",
+      destination: "Post to GitHub",
+      avatarUrl: viewerAvatarUrl(this.doc),
       onConfirm: (body) => void this.confirm(body),
       onCancel: () => this.closeDraft(),
     });
     box.body = previousBody;
-    const anchor = anchorBlock(range, root);
-    anchor.after(box.host);
-    const draft: Draft = { pull, box, range, selectedText: range.toString(), target: null, comparison: null, anchor };
+    insertBeneathLine(range, root, box.host);
+    const draft: Draft = { pull, box, range, selectedText: range.toString(), target: null, comparison: null, parent: box.host.parentNode };
     this.draft = draft;
-    this.highlight(range);
+    this.paintHighlights();
     box.focus();
 
     try {
@@ -170,7 +149,7 @@ export class Controller {
       return;
     }
     if (!target || !comparison) return;
-    if (!draft.anchor.isConnected) {
+    if (!draft.box.host.isConnected || !this.selectionRoot(draft.range)) {
       box.showStatus("The page changed since you selected the text. Select it again.", "error");
       return;
     }
@@ -181,8 +160,11 @@ export class Controller {
     box.setBusy(false);
 
     if (result.state === "published") {
-      this.closeDraft();
-      this.addMarker(draft.anchor, target, result.url ?? `${pullPath(draft.pull)}/files`);
+      // The composer stays where it is and becomes the finished comment.
+      box.showPosted(body, describeTarget(target), result.url ?? `${pullPath(draft.pull)}/files`);
+      this.posted.push(draft.range);
+      this.draft = null;
+      this.paintHighlights();
       return;
     }
     if (result.state === "unknown") {
@@ -192,30 +174,23 @@ export class Controller {
     box.showStatus(result.reason, "error");
   }
 
-  private addMarker(anchor: Element, target: LineTarget, href: string): void {
-    const marker = this.doc.createElement("a");
-    marker.setAttribute(UI_ATTRIBUTE, "marker");
-    marker.href = href;
-    marker.target = "_blank";
-    marker.rel = "noopener";
-    marker.textContent = `💬 Comment posted on ${describeTarget(target)} · open on GitHub`;
-    anchor.after(marker);
-  }
-
   private closeDraft(): void {
-    this.draft?.box.host.remove();
+    const draft = this.draft;
     this.draft = null;
-    this.clearHighlight();
+    if (draft) {
+      draft.box.host.remove();
+      draft.parent?.normalize(); // Rejoin the text split for the composer.
+    }
+    this.paintHighlights();
   }
 
-  private highlight(range: Range): void {
-    const highlights = (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS?.highlights;
+  private paintHighlights(): void {
+    const css = (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS;
     const HighlightCtor = (globalThis as { Highlight?: new (...r: Range[]) => unknown }).Highlight;
-    if (highlights && HighlightCtor) highlights.set(HIGHLIGHT, new HighlightCtor(range));
-  }
-
-  private clearHighlight(): void {
-    (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS?.highlights?.delete(HIGHLIGHT);
+    if (!css?.highlights || !HighlightCtor) return;
+    if (this.draft) css.highlights.set(DRAFT_HIGHLIGHT, new HighlightCtor(this.draft.range));
+    else css.highlights.delete(DRAFT_HIGHLIGHT);
+    css.highlights.set(POSTED_HIGHLIGHT, new HighlightCtor(...this.posted));
   }
 
   private loadComparison(pull: PullRef): Promise<Comparison> {
@@ -240,6 +215,25 @@ export class Controller {
     }
     return value;
   }
+}
+
+/** The signed-in viewer's avatar, from the login GitHub puts in the page. */
+export function viewerAvatarUrl(doc: Document): string | null {
+  const login = doc.querySelector<HTMLMetaElement>('meta[name="user-login"]')?.content;
+  return login ? `https://github.com/${encodeURIComponent(login)}.png?size=40` : null;
+}
+
+/** A key that types text: a printable character, or the start of IME input. */
+export function startsComment(event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "defaultPrevented">): boolean {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
+  if (event.key === "Process") return true;
+  return [...event.key].length === 1 && event.key !== " ";
+}
+
+function isEditable(el: Element | null): boolean {
+  if (!el) return false;
+  if (el.closest(`[${UI_ATTRIBUTE}]`)) return true;
+  return el.matches("input, textarea, select, [contenteditable=''], [contenteditable='true']");
 }
 
 function elementOf(node: Node): Element | null {

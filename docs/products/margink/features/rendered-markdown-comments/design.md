@@ -40,14 +40,36 @@ Logic that does not need the DOM (text normalization, location resolution, reque
 When a pull request's file view loads, the content script reads the pull request coordinates from the URL and fetches the page's route data (described under [APIs and interfaces](#apis-and-interfaces)) to learn the base and head commits and the changed files.
 It watches the page for rendered Markdown files, because GitHub loads files lazily and navigates without full page loads.
 
-When the reviewer selects text inside one rendered Markdown file and presses the Comment button that appears next to the selection, the content script resolves the selection to a source location.
-If resolution succeeds, it highlights the selection and inserts the comment box directly after the rendered block that contains the end of the selection.
-The box shows the target (file, side, and line range) and the current mode before the reviewer confirms.
+When the reviewer selects text inside one rendered Markdown file and starts typing, the inline composer opens directly beneath the line that holds the selection with the typed text in it, and the content script resolves the selection to a source location.
+The composer shows the target (file, side, and line range) and the destination before the reviewer confirms.
 
 On confirmation, an empty or whitespace-only body is rejected in place.
 In GitHub mode the content script publishes one review comment, and in stock mode it adds one stock item.
-After success, the box closes and a small marker stays beside the passage so the reviewer can reopen it.
-After failure, the box stays open with the body and target, and shows the reason.
+After success, the composer turns into the finished comment in the same place, so the reviewer can read it again and open it on GitHub.
+After failure, the composer stays open with the body and target, and shows the reason.
+
+### Interaction design
+
+The composer follows a reference screen and screen recording the product owner provided: a review tool that lets a reviewer comment inline on rendered Markdown and send with Command+Enter.
+In the recording, the reviewer double-clicks a word, types immediately, and the comment appears under that line; the word keeps an underline, and the next word is commented on the same way.
+Its qualities are lightness and staying in the reading flow, so the composer is designed as part of the document rather than as a form.
+
+- **Start.** With commentable text selected, typing a printable character, or starting IME input, opens the composer and moves focus into it during that keydown, so the character lands in the composer.
+  The key is not cancelled, but it is stopped in the capture phase so GitHub's single-key shortcuts do not run.
+  Selecting alone, copying, and keys with Command, Control, or Alt do nothing, so selecting text to copy it costs nothing. An empty composer closes on Escape or on a click elsewhere.
+  A composer that already holds text is not replaced by a new selection.
+- **Placement.** The composer is inserted under the visual line that contains the end of the selection, splitting the rendered paragraph there, and the rest of the paragraph continues below it.
+  When that point is inside a link or other inline markup, the composer goes after that element. In code blocks and tables, or on a block's last line, it goes after the block.
+- **Marking the passage.** The selected words get a 2px underline in the composer's accent color, drawn with the CSS Custom Highlight API so GitHub's DOM is not wrapped or restyled.
+- **Composer.** A low-contrast card with a 1px border, a slightly raised background, and a 3px accent bar on the left. The reviewer's avatar comes first, and a borderless text area starts at one line and grows with its content.
+  There are no labels or buttons inside the writing area. A small muted line under it names the target, and a muted text control at the right names the destination and the shortcut (for example "Post to GitHub ⌘Enter"); it is also the on-screen confirm action.
+- **Finished comment.** After publishing, the same card keeps the avatar and text, drops the accent bar as the recording's comments at rest do, and links to the comment on GitHub. The passage keeps a softer underline in the accent color.
+- **Keys.** The configured chord confirms, Enter inserts a newline, Escape cancels, and IME composition always takes priority. Key events in the composer do not reach GitHub's page shortcuts.
+
+The accent is purple (#8250df, or #ab7aca on dark backgrounds), matching the reference screen while staying readable on GitHub's light and dark themes.
+The recording also mirrors each comment, while it is typed, into a list that shows the file and line, the source line with the selected words highlighted, and the comment; that list corresponds to the stock panel and follows its own change.
+The card uses GitHub's Primer color variables when the page defines them.
+It is an inline-block element, so GitHub's insertion and deletion underlines do not spread into it when it sits inside a changed paragraph.
 
 ### Resolving a selection to a source location
 
@@ -121,11 +143,11 @@ sequenceDiagram
   actor R as Reviewer
   participant CS as Content script
   participant GH as github.com (same origin)
-  R->>CS: Select text, press Comment
+  R->>CS: Select text
   CS->>GH: Fetch route data and source (cookies)
   GH-->>CS: Base/head commits, threads, source lines
   CS->>CS: Resolve side and line range
-  CS-->>R: Comment box under the passage
+  CS-->>R: Composer under the selected line
   R->>CS: Confirm (button or shortcut)
   alt GitHub mode
     CS->>GH: POST create_review_comment (cookies, same origin)
@@ -133,7 +155,7 @@ sequenceDiagram
   else Stock mode
     CS->>CS: Append to tab stock
   end
-  CS-->>R: Close box and show marker, or keep box with reason
+  CS-->>R: Show the finished comment in place, or keep the composer with the reason
 ```
 
 The background service worker is not in this diagram; in stock mode the content script's append goes through it, as described under [Internal messages](#internal-messages).
@@ -161,7 +183,7 @@ erDiagram
 
 ### User-facing interfaces
 
-The page shows a Comment button near a valid selection, the comment box, passage markers, and a small floating panel with the mode switch and the stock list.
+The page shows the inline composer, finished comments in place, passage underlines, and a small floating panel with the mode switch and the stock list.
 The mode switch states that stock lasts until the tab closes.
 The options page edits the confirm chord and restores defaults.
 
