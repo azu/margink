@@ -1,4 +1,8 @@
-/** A key chord that confirms a comment. Enter is always the key. */
+/**
+ * The key chord that confirms a comment. Enter is always the key. In GitHub
+ * mode it adds the comment to the pending review, as Command+Enter does in
+ * GitHub's own diff comment box; the same chord with Shift publishes it at once.
+ */
 export interface ConfirmChord {
   /** Command on macOS, Control elsewhere. */
   primary: boolean;
@@ -22,7 +26,7 @@ export interface KeyLike {
   keyCode?: number;
 }
 
-export type KeyAction = "confirm" | "review" | "newline" | "none";
+export type KeyAction = "confirm" | "alternate" | "newline" | "none";
 
 /**
  * Decide what a keydown in the comment box does.
@@ -39,9 +43,9 @@ export function keyAction(event: KeyLike, chord: ConfirmChord, mac: boolean): Ke
   if (primary === chord.primary && event.shiftKey === chord.shift && event.altKey === chord.alt) {
     return "confirm";
   }
-  // The confirm chord with Shift added adds the comment to the pending review.
-  if (hasReviewChord(chord) && primary && event.shiftKey && event.altKey === chord.alt) {
-    return "review";
+  // The confirm chord with Shift added is the alternate action.
+  if (hasAlternateChord(chord) && primary && event.shiftKey && event.altKey === chord.alt) {
+    return "alternate";
   }
   // Plain Enter is a newline unless it confirms; then Shift+Enter is the newline.
   const plain = !primary && !event.shiftKey && !event.altKey;
@@ -50,12 +54,12 @@ export function keyAction(event: KeyLike, chord: ConfirmChord, mac: boolean): Ke
   return "none";
 }
 
-/** Whether the add-to-review chord (the confirm chord plus Shift) exists. */
-export function hasReviewChord(chord: ConfirmChord): boolean {
+/** Whether the alternate chord (the confirm chord plus Shift) exists. */
+export function hasAlternateChord(chord: ConfirmChord): boolean {
   return chord.primary && !chord.shift;
 }
 
-export function reviewChord(chord: ConfirmChord): ConfirmChord {
+export function alternateChord(chord: ConfirmChord): ConfirmChord {
   return { ...chord, shift: true };
 }
 

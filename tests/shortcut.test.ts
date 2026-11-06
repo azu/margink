@@ -11,9 +11,9 @@ describe("default confirm shortcut", () => {
     expect(keyAction(key({ ctrlKey: true }), DEFAULT_CHORD, true)).toBe("none");
   });
 
-  it("adds to the pending review with the same chord plus Shift", () => {
-    expect(keyAction(key({ metaKey: true, shiftKey: true }), DEFAULT_CHORD, true)).toBe("review");
-    expect(keyAction(key({ ctrlKey: true, shiftKey: true }), DEFAULT_CHORD, false)).toBe("review");
+  it("takes the alternate action with the same chord plus Shift", () => {
+    expect(keyAction(key({ metaKey: true, shiftKey: true }), DEFAULT_CHORD, true)).toBe("alternate");
+    expect(keyAction(key({ ctrlKey: true, shiftKey: true }), DEFAULT_CHORD, false)).toBe("alternate");
     expect(keyAction(key({ metaKey: true, shiftKey: true, isComposing: true }), DEFAULT_CHORD, true)).toBe("none");
     // With plain Enter confirming, Shift+Enter stays the newline key.
     expect(keyAction(key({ shiftKey: true }), { primary: false, shift: false, alt: false }, true)).toBe("newline");

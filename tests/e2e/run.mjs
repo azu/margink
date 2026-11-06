@@ -128,8 +128,8 @@ assert.deepEqual(await tab.evaluate(() => window.pageShortcuts.filter((k) => k =
 await assert.doesNotReject(box().locator(".where", { hasText: "guide.md L3 (before)" }).waitFor({ timeout: 5000 }));
 await box().locator("textarea").fill("Why remove this?");
 // Repeated confirmation while posting starts only one request.
-await box().locator("textarea").press(`${mod}+Enter`);
-await box().locator("textarea").press(`${mod}+Enter`).catch(() => {});
+await box().locator("textarea").press(`${mod}+Shift+Enter`);
+await box().locator("textarea").press(`${mod}+Shift+Enter`).catch(() => {});
 await tab.locator('[data-margink-ui="posted-comment"]').first().waitFor({ timeout: 5000 });
 assert.equal(posts.length, 1);
 assert.equal(posts[0].side, "left");
@@ -145,7 +145,7 @@ await box().locator(".where", { hasText: /guide\.md L7$/ }).waitFor({ timeout: 5
 
 // 3. A blank comment is not posted and the box stays.
 await box().locator("textarea").fill("   ");
-await box().locator(".confirm").click({ force: true });
+await box().locator(".publish").click({ force: true });
 await box().locator(".status", { hasText: "Write a comment first." }).waitFor({ timeout: 5000 });
 assert.equal(posts.length, 1);
 
@@ -205,7 +205,7 @@ await assert.doesNotReject(box().locator(".where", { hasText: /guide\.md L9–10
 assert.equal(await tab.evaluate(() => document.activeElement?.getAttribute("data-margink-ui")), "comment-box", "the composer has focus");
 const postsBefore = posts.length;
 await tab.keyboard.type("Whole paragraph");
-await tab.keyboard.press(`${mod}+Enter`);
+await tab.keyboard.press(`${mod}+Shift+Enter`);
 await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Whole paragraph" }).waitFor({ timeout: 5000 });
 assert.equal(posts.length, postsBefore + 1);
 const blockPost = posts.at(-1);
@@ -244,15 +244,15 @@ assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0, "S
 assert.ok(await tab.evaluate(() => scrollY) > 0, "Space scrolls the page");
 await tab.evaluate(() => scrollTo(0, 0));
 
-// 10. The confirm chord with Shift adds the comment to the pending review
-//     instead of publishing it.
+// 10. The confirm chord adds the comment to the pending review, as in
+//     GitHub's diff comment box; every other check publishes with Shift.
 await heading.click();
 await tab.waitForTimeout(50);
 await tab.keyboard.type("Pending note");
 await assert.doesNotReject(box().locator(".where", { hasText: /guide\.md L1$/ }).waitFor({ timeout: 5000 }));
 assert.match(await box().locator(".review").innerText(), /^Review /);
 const beforeReview = posts.length;
-await tab.keyboard.press(`${mod}+Shift+Enter`);
+await tab.keyboard.press(`${mod}+Enter`);
 await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Pending note" }).waitFor({ timeout: 5000 });
 assert.equal(posts.length, beforeReview + 1);
 assert.equal(posts.at(-1).submitBatch, false, "the comment stays in the pending review");
@@ -265,7 +265,7 @@ await select("b = 3", 0, ".diff-table");
 assert.equal(await visibleBoxes(), 0);
 await tab.keyboard.type("Why 3?");
 await assert.doesNotReject(box().locator(".where", { hasText: /app\.js L2$/ }).waitFor({ timeout: 5000 }));
-await tab.keyboard.press(`${mod}+Enter`);
+await tab.keyboard.press(`${mod}+Shift+Enter`);
 await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Why 3?" }).waitFor({ timeout: 5000 });
 assert.deepEqual(
   { path: posts.at(-1).path, line: posts.at(-1).line, side: posts.at(-1).side, text: posts.at(-1).text },
@@ -296,7 +296,7 @@ assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0);
 await select("fresh", 0, "#diff-1f39");
 await tab.keyboard.type("Why fresh?");
 await assert.doesNotReject(box().locator(".where", { hasText: /new\.js L101$/ }).waitFor({ timeout: 5000 }));
-await tab.keyboard.press(`${mod}+Enter`);
+await tab.keyboard.press(`${mod}+Shift+Enter`);
 await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Why fresh?" }).waitFor({ timeout: 5000 });
 assert.deepEqual(
   { path: posts.at(-1).path, line: posts.at(-1).line, side: posts.at(-1).side, text: posts.at(-1).text },
@@ -320,7 +320,7 @@ const firstBox = box().filter({ has: tab.locator("textarea") }).nth(0);
 assert.deepEqual(await box().locator("textarea").evaluateAll((t) => t.map((x) => x.value)), ["First draft", "Second draft"]);
 //     Each composer posts its own comment.
 const beforeMulti = posts.length;
-await box().nth(1).locator("textarea").press(`${mod}+Enter`);
+await box().nth(1).locator("textarea").press(`${mod}+Shift+Enter`);
 await tab.locator('[data-margink-ui="posted-comment"]', { hasText: "Second draft" }).waitFor({ timeout: 5000 });
 assert.equal(posts.length, beforeMulti + 1);
 assert.match(posts.at(-1).text, /Second draft$/);
