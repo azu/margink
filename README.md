@@ -13,17 +13,17 @@ Margink is not in the Chrome Web Store or on addons.mozilla.org. Download it fro
 
 Chrome installs extensions from outside the Chrome Web Store only as an unpacked folder. Dropping the `.zip` onto `chrome://extensions` does not work, and neither does a `.crx` made with "Pack extension" on Windows or macOS.
 
-1. Download `margink-<version>-chrome.zip` from the release.
-2. Unzip it into a folder you keep, for example `~/margink`. Chrome reads the extension from this folder every time it starts, so do not move or delete it.
+1. Download the latest release and unzip it into a folder you keep, here `~/margink`. Chrome reads the extension from this folder every time it starts, so do not move or delete it.
 
    ```sh
-   unzip -o ~/Downloads/margink-<version>-chrome.zip -d ~/margink
+   curl -fsSL -o /tmp/margink-chrome.zip https://github.com/azu/margink/releases/latest/download/margink-chrome.zip \
+     && unzip -o /tmp/margink-chrome.zip -d ~/margink
    ```
 
-3. Open `chrome://extensions` and turn on **Developer mode** in the top right.
-4. Choose **Load unpacked** and select the `~/margink` folder (the one that contains `manifest.json`).
+2. Open `chrome://extensions` and turn on **Developer mode** in the top right.
+3. Choose **Load unpacked** and select the `~/margink` folder (the one that contains `manifest.json`).
 
-To update, unzip the newer release into the same folder with the same command, then press the reload button on Margink's card in `chrome://extensions`. Loading a different folder instead adds a second copy of Margink, because Chrome tells unpacked extensions apart by their folder.
+To update, run the same command again, then press the reload button on Margink's card in `chrome://extensions`. Loading a different folder instead adds a second copy of Margink, because Chrome tells unpacked extensions apart by their folder.
 
 ### Firefox
 

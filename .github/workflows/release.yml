@@ -67,7 +67,9 @@ jobs:
           npm run zip
           npm run zip:firefox
           mkdir -p release
-          cp ".output/margink-$VERSION-chrome.zip" release/
+          # A fixed name lets README's command download
+          # releases/latest/download/margink-chrome.zip.
+          cp ".output/margink-$VERSION-chrome.zip" release/margink-chrome.zip
         env:
           VERSION: ${{ steps.package.outputs.version }}
 
