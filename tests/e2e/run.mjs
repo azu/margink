@@ -1,7 +1,9 @@
 // End-to-end check of the built Chrome extension against a stand-in GitHub page.
+// With MARGINK_TARGET=userscript, the same checks run against the userscript
+// build instead, injected the way a manager runs it once the page has loaded.
 // Network requests to github.com are answered locally, so no account is used.
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -10,6 +12,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 
 const extension = resolve(".output/chrome-mv3");
+const userscript = process.env.MARGINK_TARGET === "userscript";
 const base = "a".repeat(40);
 const head = "b".repeat(40);
 const source = {
@@ -46,8 +49,12 @@ const posts = [];
 const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "margink-")), {
   channel: "chromium",
   headless: true,
-  args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+  args: userscript ? [] : [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
 });
+if (userscript) {
+  const code = readFileSync(resolve(".output/margink.user.js"), "utf8");
+  await context.addInitScript({ content: `document.addEventListener("DOMContentLoaded", () => {\n${code}\n});` });
+}
 await context.route("https://github.com/**", async (route) => {
   const req = route.request();
   const url = new URL(req.url());
@@ -334,4 +341,4 @@ if (process.env.SCREENSHOT_DARK) {
   await tab.screenshot({ path: process.env.SCREENSHOT_DARK });
 }
 await context.close();
-console.log("e2e: all checks passed");
+console.log(`e2e (${userscript ? "userscript" : "extension"}): all checks passed`);

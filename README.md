@@ -9,7 +9,17 @@ The specifications live in [docs/](docs/README.md).
 
 Margink is not in the Chrome Web Store or on addons.mozilla.org. Download it from the [latest release](https://github.com/azu/margink/releases/latest).
 
-### Chrome
+### Userscript (Chrome and Firefox)
+
+This is the easiest way to install Margink and keep it updated.
+
+1. Install a userscript manager such as [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
+2. In Chrome 138 or later, open the manager's details page in `chrome://extensions` and turn on **Allow User Scripts**. Older Chrome needs **Developer mode** instead. See [Tampermonkey's FAQ](https://www.tampermonkey.net/faq.php?q=Q209).
+3. Open [margink.user.js](https://github.com/azu/margink/releases/latest/download/margink.user.js) and confirm the install in the manager.
+
+The manager checks the latest release for a newer version.
+
+### Chrome extension
 
 1. Download `margink-<version>-chrome.zip` and unzip it into a folder you keep. Chrome loads the extension from that folder, so do not delete it.
 2. Open `chrome://extensions` and turn on **Developer mode**.
@@ -17,7 +27,7 @@ Margink is not in the Chrome Web Store or on addons.mozilla.org. Download it fro
 
 To update, unzip the newer release over the same folder and press the reload button on Margink's card in `chrome://extensions`.
 
-### Firefox
+### Firefox add-on
 
 Firefox support is experimental.
 
@@ -33,8 +43,9 @@ npm install
 npm run dev          # Chrome with the extension loaded
 npm run build        # .output/chrome-mv3
 npm run build:firefox
+npm run build:userscript  # .output/margink.user.js
 npm test             # unit tests
-npm run test:e2e     # builds and runs the extension against a stand-in GitHub page
+npm run test:e2e     # runs the extension and the userscript against a stand-in GitHub page
 ```
 
 To try the build in Chrome, open `chrome://extensions`, turn on Developer mode, choose "Load unpacked", and select `.output/chrome-mv3`.
