@@ -88,10 +88,14 @@ export class AddButton {
     if (!block || !root) return;
     if (!block.isConnected) return this.hide();
     const view = block.ownerDocument.defaultView;
-    const rootRect = root.getBoundingClientRect();
-    const padding = parseFloat(view?.getComputedStyle(root).paddingLeft ?? "0") || 0;
-    // Just left of the text column, outside the file when it has no margin.
-    const left = Math.max(2, rootRect.left + padding - SIZE - GAP);
+    // The text column is the rendered Markdown body when GitHub wraps the
+    // file in one; its left padding is the margin the button sits in.
+    const column = block.closest(".markdown-body");
+    const box = column && root.contains(column) ? column : root;
+    const rect = box.getBoundingClientRect();
+    const padding = parseFloat(view?.getComputedStyle(box).paddingLeft ?? "0") || 0;
+    // Right beside the text, inside the file even when it has no margin.
+    const left = Math.max(rect.left + 2, rect.left + padding - SIZE - GAP);
     const firstLine = firstLineRect(block);
     const top = firstLine.top + Math.max(0, (firstLine.height - SIZE) / 2);
     this.host.style.left = `${left + (view?.scrollX ?? 0)}px`;

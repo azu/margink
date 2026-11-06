@@ -50,6 +50,12 @@ Scenario: When the reviewer starts a comment on a whole block, it refers to that
 - When: The reviewer starts a comment on that block from beside it, as GitHub's source diff offers beside a line, without selecting text, and confirms the comment in GitHub mode.
 - Then: A line comment is published on the source lines of that block in one version; a block that mixes deleted and added words is commented on in the version after the change.
 
+Scenario: When the reviewer clicks in a block and types, a comment on that block starts
+
+- Given: A rendered diff shows a commentable block and no text is selected.
+- When: The reviewer clicks in that block and starts typing, including through an input method.
+- Then: A comment input for that whole block appears with the typed text, while a click without typing changes nothing on screen and keys that scroll the page keep scrolling it.
+
 Scenario: When a selection cannot be published as a line comment, the text is retained
 
 - Given: The selection combines incompatible document versions, has no reliably identified source location, or refers to a location GitHub does not accept.
