@@ -11,12 +11,14 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "build:userscript": "node scripts/build-userscript.mjs",
     "postinstall": "wxt prepare",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "npm run build && node tests/e2e/run.mjs"
+    "test:e2e": "npm run build && node tests/e2e/run.mjs && npm run build:userscript && MARGINK_TARGET=userscript node tests/e2e/run.mjs"
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "jsdom": "26.1.0",
     "playwright": "^1.63.0",
     "typescript": "5.8.3",
