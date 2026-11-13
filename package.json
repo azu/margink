@@ -1,6 +1,6 @@
 {
   "name": "margink",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Comment on rendered Markdown in GitHub pull requests.",
   "type": "module",
