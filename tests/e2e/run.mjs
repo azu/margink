@@ -133,6 +133,44 @@ await tab.keyboard.press("ArrowDown");
 assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 0, "a navigation key disarms");
 assert.equal(await tab.evaluate(() => getSelection().toString()), "Old words", "the selection is restored");
 
+// 0b. A word selected by double-clicking can be copied: the second click
+//     does not replace its composer with one for the whole block.
+async function wordPoint(text) {
+  return tab.evaluate((text) => {
+    const walker = document.createTreeWalker(document.querySelector(".prose-diff"), NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const at = n.data.indexOf(text);
+      if (at < 0) continue;
+      const r = document.createRange();
+      r.setStart(n, at);
+      r.setEnd(n, at + text.length);
+      const b = r.getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+    }
+    throw new Error("not found " + text);
+  }, text);
+}
+await tab.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+await tab.waitForTimeout(100);
+const word = await wordPoint("pnpm");
+await tab.evaluate(() => navigator.clipboard.writeText(""));
+await tab.mouse.click(word.x, word.y);
+await tab.waitForTimeout(150);
+await tab.mouse.click(word.x, word.y, { clickCount: 2 });
+await tab.waitForTimeout(50);
+await tab.keyboard.press(`${mod}+c`);
+assert.equal(await tab.evaluate(() => navigator.clipboard.readText()), "pnpm", "a double-clicked word is copied");
+
+// 0c. A right-click hands the selection back, so the context menu can copy it.
+const old = await wordPoint("Old words");
+await tab.mouse.move(old.x, old.y);
+await select("Old words");
+await tab.mouse.down({ button: "right" });
+assert.equal(await tab.evaluate(() => getSelection().toString()), "Old words", "the selection is restored for the context menu");
+await tab.mouse.up({ button: "right" });
+await tab.keyboard.press("Escape");
+await tab.mouse.click(5, 5);
+
 // 1. Removed text is commented on the base version.
 await startComment("Old words", 0, "W");
 assert.deepEqual(await tab.evaluate(() => window.pageShortcuts.filter((k) => k === "W")), [], "GitHub's shortcuts do not see the first key");
