@@ -84,11 +84,13 @@ export class Controller {
     });
     // An empty composer is dismissed by clicking elsewhere, like a popover.
     // Composers that hold text stay open, so several comments can be drafted.
+    // A hidden composer for selected text hands the selection back first, so a
+    // right-click offers Copy for it and Shift+click extends it, as on the page.
     this.doc.addEventListener("mousedown", (e) => {
       for (const draft of [...this.drafts]) {
         if (!isBlankComment(draft.box.body)) continue;
         if (e.target instanceof Node && draft.box.host.contains(e.target)) continue;
-        this.closeDraft(draft);
+        this.closeDraft(draft, { restoreSelection: draft.box.isArmed && !draft.wholeBlock });
       }
     });
     // Hovering a rendered block shows the add button beside it, as GitHub
@@ -131,6 +133,11 @@ export class Controller {
     const sel = this.doc.getSelection();
     if (!sel || !parsePullUrl(this.doc.location.href)) return;
     if (sel.isCollapsed || !sel.toString().trim()) {
+      // A hidden composer for selected text holds focus, which empties the
+      // page's selection. A later mouseup of the same gesture, such as the
+      // second click of a double-click, must not replace it with a composer
+      // for the whole block, or the selection could no longer be copied.
+      if (this.draft && this.draft.box.isArmed && !this.draft.wholeBlock) return;
       if (clicked) this.onClick(clicked);
       return;
     }
