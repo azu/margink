@@ -118,6 +118,7 @@ Clicks on GitHub's own "+" button and other controls in the table are left to Gi
 
 GitHub sometimes shows "This rich diff is not supported at the moment." instead of a rendered Markdown file.
 The content script looks for that notice by its text with one XPath query, on start and after page changes (a `MutationObserver` on the body, at most once every 300 ms), because the notice's markup is GitHub's and files load lazily. This only reads the page and sends no request.
+Only an element whose whole text is the message counts, outside diff lines, code, tables, comments, and rendered Markdown, because a diff or a document can quote the same words (this design does). A notice that the browser reports as not visible, or one in a file for which GitHub shows a rich diff, is ignored; it is picked up later if GitHub shows it.
 A bar with a button goes right after each notice, once per notice, and only on pull request pages. The bar is shown only after a failure.
 
 When the notice comes within 800 px of the viewport (an `IntersectionObserver`; without one, at once), the content script renders the file automatically, so a file is read only when the reviewer reaches it (one source request per file, plus the route data request shared with comments). It finds the file path from the notice's ancestors the same way as for comments, refuses paths without a Markdown extension, reads the source at the head commit through the source text endpoint (the same cached request later used to resolve comments), and renders it locally.
