@@ -118,16 +118,16 @@ Clicks on GitHub's own "+" button and other controls in the table are left to Gi
 
 GitHub sometimes shows "This rich diff is not supported at the moment." instead of a rendered Markdown file.
 The content script looks for that notice by its text with one XPath query, on start and after page changes (a `MutationObserver` on the body, at most once every 300 ms), because the notice's markup is GitHub's and files load lazily. This only reads the page and sends no request.
-A "Render Markdown" button goes right after each notice, once per notice, and only on pull request pages.
+A bar with a button goes right after each notice, once per notice, and only on pull request pages.
 
-When the button is pressed, the content script finds the file path from the notice's ancestors the same way as for comments, refuses paths without a Markdown extension, reads the source at the head commit through the source text endpoint (the same cached request later used to resolve comments), and renders it locally.
+When the bar comes within 800 px of the viewport (an `IntersectionObserver`; without one, at once), the content script renders the file automatically, so a file is read only when the reviewer reaches it (one source request per file, plus the route data request shared with comments). It finds the file path from the notice's ancestors the same way as for comments, refuses paths without a Markdown extension, reads the source at the head commit through the source text endpoint (the same cached request later used to resolve comments), and renders it locally.
 Rendering uses [marked](https://marked.js.org/) with GitHub Flavored Markdown, and the HTML is sanitized with [DOMPurify](https://github.com/cure53/DOMPurify) before it reaches the page: scripts, event handlers, `javascript:` URLs, styles, forms, and `id` and `name` attributes are removed, and only task list checkboxes remain as disabled inputs.
 Relative links point to `/{owner}/{repo}/blob/{head}/…` and relative images to `/{owner}/{repo}/raw/{head}/…`, resolved against the file's directory; a path above the repository root is dropped.
 Fences that GitHub draws as diagrams (`mermaid`, `geojson`, `topojson`, `stl`) are shown as code and marked as skipped, matching the source index, which leaves them out.
 
 The result goes in an element with `data-margink-rendered="head"` holding an `article.markdown-body`, so GitHub's own Markdown styles apply. That element is one more rendered file root, so selection, the add button, clicking a block, and resolution work as on GitHub's rich diff. It has no insertion or deletion wrappers, so every comment on it is on the version after the change.
 After rendering, the button hides and shows the rendered file.
-A failure (no file path, not Markdown, unreadable source) is shown next to the button, and nothing is rendered.
+A failure (no file path, not Markdown, unreadable source) is shown next to the button, nothing is rendered, and the button ("Render Markdown") tries again.
 The notice's wording and placement were not checked on a signed-in pull request, so the text match is kept loose ("rich diff is not supported") and must be checked there.
 
 ### Publishing and stocking

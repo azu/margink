@@ -29,10 +29,11 @@ export function findUnsupportedNotices(doc: Document): Element[] {
 }
 
 /**
- * Add a "Render Markdown" button beside each notice GitHub shows when it
- * cannot render a rich diff. The button renders the file's version after
- * the change below the notice, as a rendered view Margink can comment on,
- * and then toggles it.
+ * Render the file's version after the change below each notice GitHub
+ * shows when it cannot render a rich diff, as a rendered view Margink can
+ * comment on. It renders automatically when the notice comes near the
+ * viewport; the button beside the notice then hides and shows it, or
+ * retries after a failure.
  */
 export class RenderFallback {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -82,13 +83,10 @@ export class RenderFallback {
     notice.after(bar);
 
     let view: HTMLElement | null = null;
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      if (view) {
-        view.hidden = !view.hidden;
-        button.textContent = view.hidden ? "Show rendered Markdown" : "Hide rendered Markdown";
-        return;
-      }
+    let rendering = false;
+    const renderNow = async () => {
+      if (view || rendering) return;
+      rendering = true;
       button.disabled = true;
       status.textContent = "Rendering…";
       try {
@@ -104,10 +102,38 @@ export class RenderFallback {
         status.textContent = "";
         button.textContent = "Hide rendered Markdown";
       } catch (error) {
+        // The button stays, so the reviewer can try again.
         status.textContent = error instanceof Error ? error.message : String(error);
       } finally {
+        rendering = false;
         button.disabled = false;
       }
+    };
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (!view) return void renderNow();
+      view.hidden = !view.hidden;
+      button.textContent = view.hidden ? "Show rendered Markdown" : "Hide rendered Markdown";
     });
+    this.renderWhenNear(bar, renderNow);
+  }
+
+  /**
+   * Render a file automatically once it comes near the viewport, so a pull
+   * request with many such files does not request every source at once.
+   * Without IntersectionObserver, it renders right away.
+   */
+  private renderWhenNear(target: Element, renderNow: () => Promise<void>): void {
+    const view = this.doc.defaultView;
+    if (!view?.IntersectionObserver) return void renderNow();
+    const observer = new view.IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        observer.disconnect();
+        void renderNow();
+      },
+      { rootMargin: "800px 0px" },
+    );
+    observer.observe(target);
   }
 }

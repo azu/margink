@@ -68,7 +68,7 @@ describe("renderMarkdown", () => {
 });
 
 describe("RenderFallback", () => {
-  it("adds one button per unsupported notice and renders the file below it", async () => {
+  it("renders the file below each unsupported notice without a click", async () => {
     document.body.innerHTML = `<div id="diff-abc"><div class="notice">This rich diff is not supported at the moment.</div></div>`;
     const fallback = new RenderFallback(document, async () => renderMarkdown("Hello **world**", location, document), () => true);
     fallback.scan();
@@ -76,25 +76,29 @@ describe("RenderFallback", () => {
     const buttons = document.querySelectorAll("[data-margink-ui] button");
     expect(buttons).toHaveLength(1);
     expect(findUnsupportedNotices(document)).toHaveLength(0);
-    (buttons[0] as HTMLButtonElement).click();
     await new Promise((r) => setTimeout(r, 0));
     const view = document.querySelector<HTMLElement>("[data-margink-rendered]")!;
     expect(view.querySelector("strong")?.textContent).toBe("world");
     expect(view.closest(SELECTORS.proseRoot)).toBe(view);
+    expect(buttons[0]!.textContent).toBe("Hide rendered Markdown");
     (buttons[0] as HTMLButtonElement).click();
     expect(view.hidden).toBe(true);
   });
 
-  it("shows the reason when the file cannot be rendered", async () => {
+  it("shows the reason when the file cannot be rendered, and the button retries", async () => {
     document.body.innerHTML = `<p>This rich diff is not supported at the moment.</p>`;
+    let calls = 0;
     const fallback = new RenderFallback(document, async () => {
+      calls++;
       throw new Error("Margink renders only Markdown files.");
     }, () => true);
     fallback.scan();
-    document.querySelector<HTMLButtonElement>("[data-margink-ui] button")!.click();
     await new Promise((r) => setTimeout(r, 0));
     expect(document.querySelector("[role=status]")?.textContent).toBe("Margink renders only Markdown files.");
     expect(document.querySelector("[data-margink-rendered]")).toBeNull();
+    document.querySelector<HTMLButtonElement>("[data-margink-ui] button")!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toBe(2);
   });
 
   it("does nothing outside a pull request", () => {

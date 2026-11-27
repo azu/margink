@@ -92,10 +92,10 @@ As a Markdown reviewer, I want to read a changed Markdown file rendered even whe
 
 **Acceptance criteria:**
 
-Scenario: When GitHub shows no rich diff for a Markdown file, the reviewer can render it
+Scenario: When GitHub shows no rich diff for a Markdown file, Margink renders it
 
 - Given: A pull request shows a changed Markdown file with GitHub's notice that its rich diff is not supported.
-- When: The reviewer asks Margink to render that file from beside the notice.
+- When: The reviewer scrolls to that file.
 - Then: The file's version after the change appears rendered below the notice, and the reviewer can hide and show it again.
 
 Scenario: When the reviewer comments on a file Margink rendered, the comment refers to the version after the change
@@ -107,8 +107,8 @@ Scenario: When the reviewer comments on a file Margink rendered, the comment ref
 Scenario: When the file cannot be rendered, the reason is shown
 
 - Given: GitHub shows the notice for a file that is not Markdown, or the file's source cannot be read.
-- When: The reviewer asks Margink to render it.
-- Then: Nothing is rendered, and the reason is shown beside the request.
+- When: Margink tries to render it.
+- Then: Nothing is rendered, the reason is shown beside the notice, and the reviewer can try again.
 
 ### Publish each confirmed comment to GitHub
 
@@ -276,7 +276,7 @@ If the passage cannot be identified reliably, do not attach the comment to a gue
 
 #### Applicable conditions
 
-The offer appears beside each such notice on a pull request page, including files loaded after the page. Rendering starts only when the reviewer asks for it. The rendered view shows the version after the change without marking added or deleted text, so comments on it refer to that version. GitHub Flavored Markdown (headings, lists, tables, task lists, strikethrough, code blocks, and raw HTML that GitHub allows) is rendered; relative links and images point to the same commit. Diagrams are shown as their code and are not commentable, as they are not on GitHub's rendered diff.
+Each such notice on a pull request page, including files loaded after the page, gets the rendered file without the reviewer asking. Rendering starts when the notice comes near the viewport, so a pull request with many such files does not read every file at once. A control beside the notice hides and shows the rendered file. The rendered view shows the version after the change without marking added or deleted text, so comments on it refer to that version. GitHub Flavored Markdown (headings, lists, tables, task lists, strikethrough, code blocks, and raw HTML that GitHub allows) is rendered; relative links and images point to the same commit. Diagrams are shown as their code and are not commentable, as they are not on GitHub's rendered diff.
 
 #### Exceptional behavior
 

@@ -40,8 +40,9 @@ const page = `<!doctype html><html><head><title>PR</title><meta name="user-login
     <tr class="diff-line-row"><td class="focusable-grid-cell new-diff-line-number" data-diff-side="left" data-line-number="101" role="gridcell" tabindex="-1">101</td><td class="focusable-grid-cell new-diff-line-number" data-diff-side="right" role="gridcell" tabindex="-1"></td><td class="diff-text-cell focusable-grid-cell" data-line-anchor="diff-1f39L101" data-diff-side="left" data-line-number="101" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">let old = 1;</div></code></td></tr>
     <tr class="diff-line-row"><td class="focusable-grid-cell new-diff-line-number" data-diff-side="left" role="gridcell" tabindex="-1"></td><td class="focusable-grid-cell new-diff-line-number" data-diff-side="right" data-line-number="101" role="gridcell" tabindex="-1">101</td><td class="diff-text-cell focusable-grid-cell" data-line-anchor="diff-1f39R101" data-diff-side="right" data-line-number="101" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">let fresh = 2;</div></code></td></tr>
   </tbody></table></div>
-<div id="diff-2a2a" style="margin-top: 24px"><div class="notice">This rich diff is not supported at the moment.</div></div>
   <div style="height: 2000px"></div>
+<div id="diff-2a2a" style="margin-top: 24px"><div class="notice">This rich diff is not supported at the moment.</div></div>
+  <div style="height: 1000px"></div>
 </div>
 <script>window.pageShortcuts = []; document.addEventListener("keydown", (e) => window.pageShortcuts.push(e.key));</script>
 </body></html>`;
@@ -49,6 +50,7 @@ const page = `<!doctype html><html><head><title>PR</title><meta name="user-login
 const posts = [];
 const edits = [];
 const deletes = [];
+const rawRequests = [];
 const context = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "margink-")), {
   channel: "chromium",
   headless: true,
@@ -67,6 +69,7 @@ await context.route("https://github.com/**", async (route) => {
   }
   const raw = /^\/o\/r\/raw\/([0-9a-f]+)\/docs\/guide\.md$/.exec(url.pathname);
   if (raw) return route.fulfill({ contentType: "text/plain", body: source[raw[1]] });
+  if (url.pathname.startsWith("/o/r/raw/")) rawRequests.push(url.pathname);
   if (url.pathname === `/o/r/raw/${head}/docs/unsupported.md`) {
     return route.fulfill({ contentType: "text/plain", body: "# Unsupported\n\nGitHub shows no rich diff for this file.\n\n- Margink renders **it** instead.\n" });
   }
@@ -414,10 +417,11 @@ await tab.keyboard.type("こういう感じで");
 await tab.locator("p", { hasText: "Repeat me." }).first().hover();
 await addButton.waitFor({ state: "visible", timeout: 2000 });
 
-// 10. Where GitHub shows no rich diff, Margink renders the file on request,
-//     and the rendered file is commented on like a rich diff.
+// 10. Where GitHub shows no rich diff, Margink renders the file once it comes
+//     near the viewport, and the rendered file is commented on like a rich diff.
 const unsupported = tab.locator("#diff-2a2a");
-await unsupported.locator('[data-margink-ui] button', { hasText: "Render Markdown" }).click();
+assert.equal(rawRequests.filter((p) => p.endsWith("unsupported.md")).length, 0, "a file far from the viewport is not requested");
+await unsupported.scrollIntoViewIfNeeded();
 await unsupported.locator("[data-margink-rendered] strong", { hasText: "it" }).waitFor({ timeout: 5000 });
 await tab.mouse.click(5, 5);
 await select("renders", 0, "[data-margink-rendered]");
