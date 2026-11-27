@@ -32,8 +32,8 @@ export function findUnsupportedNotices(doc: Document): Element[] {
  * Render the file's version after the change below each notice GitHub
  * shows when it cannot render a rich diff, as a rendered view Margink can
  * comment on. It renders automatically when the notice comes near the
- * viewport; the button beside the notice then hides and shows it, or
- * retries after a failure.
+ * viewport and then hides the notice. After a failure, the reason and a
+ * retry button appear beside the notice.
  */
 export class RenderFallback {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -70,7 +70,7 @@ export class RenderFallback {
     notice.setAttribute(HANDLED_ATTRIBUTE, "");
     const bar = this.doc.createElement("div");
     bar.setAttribute(UI_ATTRIBUTE, "render-bar");
-    bar.style.cssText = "display:flex;align-items:center;justify-content:center;gap:8px;margin:8px 0;flex-wrap:wrap";
+    bar.style.cssText = "display:none;align-items:center;justify-content:center;gap:8px;margin:8px 0;flex-wrap:wrap";
     const button = this.doc.createElement("button");
     button.type = "button";
     button.className = "btn btn-sm";
@@ -80,6 +80,7 @@ export class RenderFallback {
     status.className = "color-fg-muted";
     status.setAttribute("role", "status");
     bar.append(button, status);
+    // The bar is shown only when rendering fails, to give the reason and a retry.
     notice.after(bar);
 
     let view: HTMLElement | null = null;
@@ -99,10 +100,12 @@ export class RenderFallback {
         article.append(fragment);
         view.append(article);
         bar.after(view);
-        status.textContent = "";
-        button.textContent = "Hide rendered Markdown";
+        // The rendered file replaces GitHub's notice and Margink's bar, which
+        // would only take space above it. GitHub's own source/rich toggle
+        // still switches to the source diff.
+        (notice as HTMLElement).style.display = "none";
       } catch (error) {
-        // The button stays, so the reviewer can try again.
+        bar.style.display = "flex";
         status.textContent = error instanceof Error ? error.message : String(error);
       } finally {
         rendering = false;
@@ -111,11 +114,9 @@ export class RenderFallback {
     };
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      if (!view) return void renderNow();
-      view.hidden = !view.hidden;
-      button.textContent = view.hidden ? "Show rendered Markdown" : "Hide rendered Markdown";
+      void renderNow();
     });
-    this.renderWhenNear(bar, renderNow);
+    this.renderWhenNear(notice, renderNow);
   }
 
   /**
