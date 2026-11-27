@@ -80,9 +80,8 @@ describe("RenderFallback", () => {
     const view = document.querySelector<HTMLElement>("[data-margink-rendered]")!;
     expect(view.querySelector("strong")?.textContent).toBe("world");
     expect(view.closest(SELECTORS.proseRoot)).toBe(view);
-    expect(buttons[0]!.textContent).toBe("Hide rendered Markdown");
-    (buttons[0] as HTMLButtonElement).click();
-    expect(view.hidden).toBe(true);
+    expect(document.querySelector<HTMLElement>(".notice")!.style.display).toBe("none");
+    expect(document.querySelector<HTMLElement>("[data-margink-ui]")!.style.display).toBe("none");
   });
 
   it("shows the reason when the file cannot be rendered, and the button retries", async () => {
@@ -96,6 +95,7 @@ describe("RenderFallback", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(document.querySelector("[role=status]")?.textContent).toBe("Margink renders only Markdown files.");
     expect(document.querySelector("[data-margink-rendered]")).toBeNull();
+    expect(document.querySelector<HTMLElement>("[data-margink-ui]")!.style.display).toBe("flex");
     document.querySelector<HTMLButtonElement>("[data-margink-ui] button")!.click();
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toBe(2);

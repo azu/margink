@@ -429,8 +429,8 @@ await tab.keyboard.type("r");
 const renderedBox = unsupported.locator('[data-margink-ui="comment-box"]');
 await renderedBox.locator(".where", { hasText: /unsupported\.md L5$/ }).waitFor({ timeout: 5000 });
 await renderedBox.locator("textarea").press("Escape");
-await unsupported.locator('[data-margink-ui] button', { hasText: "Hide rendered Markdown" }).click();
-assert.equal(await unsupported.locator("[data-margink-rendered]").isHidden(), true, "the button hides the rendered file again");
+assert.equal(await unsupported.locator(".notice").isHidden(), true, "the notice gives way to the rendered file");
+assert.equal(await unsupported.locator('[data-margink-ui="render-bar"]').isHidden(), true, "no extra control above the rendered file");
 
 if (process.env.SCREENSHOT_CODE) await tab.locator("#diff-c0de").screenshot({ path: process.env.SCREENSHOT_CODE });
 await tab.screenshot({ path: process.env.SCREENSHOT ?? join(tmpdir(), "margink-e2e.png") });
