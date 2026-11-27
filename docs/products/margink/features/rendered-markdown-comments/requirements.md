@@ -86,6 +86,30 @@ Scenario: When text in a source diff is selected and the reviewer types, a comme
 - When: The reviewer selects text on one or more lines of one version, or clicks a line, and starts typing.
 - Then: A comment input appears under those lines with the typed text, and confirming it publishes or adds to the review a comment on those lines in that version, without the reviewer opening GitHub's own comment form.
 
+### Read and comment on Markdown that GitHub does not render
+
+As a Markdown reviewer, I want to read a changed Markdown file rendered even when GitHub shows no rich diff for it, so that I can review and comment on it the same way as on other rendered files.
+
+**Acceptance criteria:**
+
+Scenario: When GitHub shows no rich diff for a Markdown file, the reviewer can render it
+
+- Given: A pull request shows a changed Markdown file with GitHub's notice that its rich diff is not supported.
+- When: The reviewer asks Margink to render that file from beside the notice.
+- Then: The file's version after the change appears rendered below the notice, and the reviewer can hide and show it again.
+
+Scenario: When the reviewer comments on a file Margink rendered, the comment refers to the version after the change
+
+- Given: Margink rendered a Markdown file that GitHub did not render, and GitHub permits a line comment at the corresponding source lines.
+- When: The reviewer selects text or a block in it and confirms a comment.
+- Then: The comment is published or added to the review on those source lines in the version after the change, as on GitHub's rendered diff.
+
+Scenario: When the file cannot be rendered, the reason is shown
+
+- Given: GitHub shows the notice for a file that is not Markdown, or the file's source cannot be read.
+- When: The reviewer asks Margink to render it.
+- Then: Nothing is rendered, and the reason is shown beside the request.
+
 ### Publish each confirmed comment to GitHub
 
 As a reviewer collaborating through GitHub, I want confirmation to publish my comment immediately so that collaborators can read it through the pull request.
@@ -242,6 +266,22 @@ All displayed text in a changed Markdown file is eligible for selection, includi
 
 If the passage cannot be identified reliably, do not attach the comment to a guessed location. Preserve entered text and explain that the selected target is unavailable. Repeated identical phrases must not be treated as interchangeable. If a document update invalidates the selected location, require the reviewer to select its target again before publication. An unsupported document or selection must not appear to accept feedback that it cannot retain or deliver.
 
+### Render a Markdown file that GitHub does not render
+
+**Overview:** Offer a rendered view of a changed Markdown file where GitHub shows only a notice that its rich diff is not supported.
+
+**Input:** The current pull request, the file the notice belongs to, and the file's source in the version after the change.
+
+**Output:** The rendered file below the notice, on which comments start the same way as on GitHub's rendered diff.
+
+#### Applicable conditions
+
+The offer appears beside each such notice on a pull request page, including files loaded after the page. Rendering starts only when the reviewer asks for it. The rendered view shows the version after the change without marking added or deleted text, so comments on it refer to that version. GitHub Flavored Markdown (headings, lists, tables, task lists, strikethrough, code blocks, and raw HTML that GitHub allows) is rendered; relative links and images point to the same commit. Diagrams are shown as their code and are not commentable, as they are not on GitHub's rendered diff.
+
+#### Exceptional behavior
+
+If the file is not Markdown, cannot be identified, or its source cannot be read, show the reason and render nothing. Active content in the file, such as scripts and event handlers, must never run on the page.
+
 ### Publish or collect the confirmed comment
 
 **Overview:** GitHub publication is the default; the reviewer can choose collection for copying instead.
@@ -342,7 +382,7 @@ Document passages, repository names, comment text, and the signed-in account can
 
 ## Security considerations
 
-The extension must respect the current GitHub account's access and must not expose private document content to another repository or pull request. Comments and selected passages are sent only for an explicit publication or copy action. Do not send repository content or comments to an unrelated service for this workflow.
+The extension must respect the current GitHub account's access and must not expose private document content to another repository or pull request. Comments and selected passages are sent only for an explicit publication or copy action. Do not send repository content or comments to an unrelated service for this workflow. Markdown that Margink renders comes from the pull request and must not run scripts or other active content on the page.
 
 Retaining drafts or collections must not store a reusable copy of the reviewer's authentication credentials. GitHub publication must identify the intended pull request and target; a matching phrase elsewhere is not sufficient evidence that it is the same target.
 

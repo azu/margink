@@ -2,18 +2,28 @@ import { normalizeText } from "./normalize";
 import type { Side } from "./resolve";
 
 /**
+ * Marks a file Margink rendered itself because GitHub showed no rich diff.
+ * Its value is the version it shows ("head"), and it is commented on like
+ * GitHub's rendered diff.
+ */
+export const RENDERED_ATTRIBUTE = "data-margink-rendered";
+
+/** Marks a diagram block Margink rendered as code; like GitHub's diagrams, it has no source text to match. */
+export const DIAGRAM_ATTRIBUTE = "data-margink-diagram";
+
+/**
  * Selectors for GitHub's rendered prose diff.
  * They describe page markup that GitHub can change, so they live in one place.
  */
 export const SELECTORS = {
   /** The rendered Markdown of one file. */
-  proseRoot: ".prose-diff, .rich-diff",
+  proseRoot: `.prose-diff, .rich-diff, [${RENDERED_ATTRIBUTE}]`,
   /** Text that exists only in the base version. */
   removed: "del, .removed",
   /** Text that exists only in the head version. */
   added: "ins, .added",
   /** Content without selectable source text. */
-  skipped: "svg, img, iframe, script, style, math, [data-margink-ui]",
+  skipped: `svg, img, iframe, script, style, math, [data-margink-ui], [${DIAGRAM_ATTRIBUTE}]`,
 } as const;
 
 function closestOrSelf(node: Node, selector: string, root: Element): Element | null {

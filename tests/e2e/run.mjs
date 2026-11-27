@@ -40,6 +40,7 @@ const page = `<!doctype html><html><head><title>PR</title><meta name="user-login
     <tr class="diff-line-row"><td class="focusable-grid-cell new-diff-line-number" data-diff-side="left" data-line-number="101" role="gridcell" tabindex="-1">101</td><td class="focusable-grid-cell new-diff-line-number" data-diff-side="right" role="gridcell" tabindex="-1"></td><td class="diff-text-cell focusable-grid-cell" data-line-anchor="diff-1f39L101" data-diff-side="left" data-line-number="101" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">let old = 1;</div></code></td></tr>
     <tr class="diff-line-row"><td class="focusable-grid-cell new-diff-line-number" data-diff-side="left" role="gridcell" tabindex="-1"></td><td class="focusable-grid-cell new-diff-line-number" data-diff-side="right" data-line-number="101" role="gridcell" tabindex="-1">101</td><td class="diff-text-cell focusable-grid-cell" data-line-anchor="diff-1f39R101" data-diff-side="right" data-line-number="101" role="gridcell" tabindex="-1"><code class="diff-text"><div class="diff-text-inner">let fresh = 2;</div></code></td></tr>
   </tbody></table></div>
+<div id="diff-2a2a" style="margin-top: 24px"><div class="notice">This rich diff is not supported at the moment.</div></div>
   <div style="height: 2000px"></div>
 </div>
 <script>window.pageShortcuts = []; document.addEventListener("keydown", (e) => window.pageShortcuts.push(e.key));</script>
@@ -62,10 +63,13 @@ await context.route("https://github.com/**", async (route) => {
   const url = new URL(req.url());
   if (url.pathname === "/o/r/pull/1/files") return route.fulfill({ contentType: "text/html", body: page });
   if (url.pathname === "/o/r/pull/1/changes") {
-    return route.fulfill({ json: { payload: { comparison: { fullDiff: { baseOid: base, headOid: head } }, diffSummaries: [{ path: "docs/guide.md", pathDigest: "0f00" }, { path: "src/new.js", pathDigest: "1f39" }] } } });
+    return route.fulfill({ json: { payload: { comparison: { fullDiff: { baseOid: base, headOid: head } }, diffSummaries: [{ path: "docs/guide.md", pathDigest: "0f00" }, { path: "src/new.js", pathDigest: "1f39" }, { path: "docs/unsupported.md", pathDigest: "2a2a" }] } } });
   }
   const raw = /^\/o\/r\/raw\/([0-9a-f]+)\/docs\/guide\.md$/.exec(url.pathname);
   if (raw) return route.fulfill({ contentType: "text/plain", body: source[raw[1]] });
+  if (url.pathname === `/o/r/raw/${head}/docs/unsupported.md`) {
+    return route.fulfill({ contentType: "text/plain", body: "# Unsupported\n\nGitHub shows no rich diff for this file.\n\n- Margink renders **it** instead.\n" });
+  }
   if (url.pathname === "/o/r/pull/1/page_data/create_review_comment" && req.method() === "POST") {
     posts.push(JSON.parse(req.postData()));
     await new Promise((r) => setTimeout(r, 300));
@@ -409,6 +413,20 @@ assert.equal(await tab.locator('[data-margink-ui="comment-box"]').count(), 1, "t
 await tab.keyboard.type("こういう感じで");
 await tab.locator("p", { hasText: "Repeat me." }).first().hover();
 await addButton.waitFor({ state: "visible", timeout: 2000 });
+
+// 10. Where GitHub shows no rich diff, Margink renders the file on request,
+//     and the rendered file is commented on like a rich diff.
+const unsupported = tab.locator("#diff-2a2a");
+await unsupported.locator('[data-margink-ui] button', { hasText: "Render Markdown" }).click();
+await unsupported.locator("[data-margink-rendered] strong", { hasText: "it" }).waitFor({ timeout: 5000 });
+await tab.mouse.click(5, 5);
+await select("renders", 0, "[data-margink-rendered]");
+await tab.keyboard.type("r");
+const renderedBox = unsupported.locator('[data-margink-ui="comment-box"]');
+await renderedBox.locator(".where", { hasText: /unsupported\.md L5$/ }).waitFor({ timeout: 5000 });
+await renderedBox.locator("textarea").press("Escape");
+await unsupported.locator('[data-margink-ui] button', { hasText: "Hide rendered Markdown" }).click();
+assert.equal(await unsupported.locator("[data-margink-rendered]").isHidden(), true, "the button hides the rendered file again");
 
 if (process.env.SCREENSHOT_CODE) await tab.locator("#diff-c0de").screenshot({ path: process.env.SCREENSHOT_CODE });
 await tab.screenshot({ path: process.env.SCREENSHOT ?? join(tmpdir(), "margink-e2e.png") });

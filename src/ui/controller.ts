@@ -8,7 +8,9 @@ import { loadComparison, sha256Hex, type Comparison, type FetchLike } from "../g
 import { deleteComment, publishComment, updateComment, type Delivery, type LineTarget, type PostedComment } from "../github/publish";
 import { parsePullUrl, pullPath, type PullRef } from "../github/pull";
 import { loadSourceLines } from "../github/source";
+import { renderMarkdown } from "../lib/markdown";
 import { AddButton } from "./add-button";
+import { RenderFallback } from "./render-fallback";
 import { CommentBox, UI_ATTRIBUTE } from "./comment-box";
 
 /** Elements whose click does something of its own, so it never starts a comment. */
@@ -55,8 +57,10 @@ export class Controller {
   private draft: Draft | null = null;
   private comparison: { key: string; value: Promise<Comparison> } | null = null;
   private readonly sources = new Map<string, Promise<SourceIndex>>();
+  private readonly sourceLines = new Map<string, Promise<string[]>>();
   private readonly mac: boolean;
   private readonly addButton: AddButton;
+  private readonly renderFallback: RenderFallback;
 
   constructor(
     private readonly doc: Document,
@@ -64,6 +68,7 @@ export class Controller {
   ) {
     this.mac = isMacPlatform(doc.defaultView?.navigator.platform ?? "");
     this.addButton = new AddButton(doc, (block, root) => this.startBlockDraft(block, root));
+    this.renderFallback = new RenderFallback(doc, (notice) => this.renderFile(notice), () => parsePullUrl(doc.location.href) !== null);
   }
 
   start(): void {
@@ -97,6 +102,20 @@ export class Controller {
     // shows "+" beside a hovered line in a source diff.
     this.doc.addEventListener("mousemove", (e) => this.onHover(e.target), { passive: true });
     this.doc.defaultView?.addEventListener("resize", () => this.addButton.reposition(), { passive: true });
+    // Where GitHub cannot show a rich diff, Margink offers to render the file itself.
+    this.renderFallback.start();
+  }
+
+  /** Render the version after the change of the Markdown file a notice belongs to. */
+  private async renderFile(notice: Element): Promise<DocumentFragment> {
+    const pull = parsePullUrl(this.doc.location.href);
+    if (!pull) throw new Error("Margink renders files only on a pull request page.");
+    const comparison = await this.loadComparison(pull);
+    const path = await findFilePath(notice, comparison);
+    if (!path) throw new Error("Margink could not tell which file this is.");
+    if (!isMarkdownPath(path)) throw new Error("Margink renders only Markdown files.");
+    const lines = await this.loadLines(pull, comparison.headOid, path);
+    return renderMarkdown(lines.join("\n"), { owner: pull.owner, repo: pull.repo, oid: comparison.headOid, path }, this.doc);
   }
 
   private onHover(target: EventTarget | null): void {
@@ -433,12 +452,28 @@ export class Controller {
     const key = `${pullPath(pull)}@${oid}:${path}`;
     let value = this.sources.get(key);
     if (!value) {
-      value = loadSourceLines(pull, oid, path, this.fetchFn).then(buildSourceIndex);
+      value = this.loadLines(pull, oid, path).then(buildSourceIndex);
       value.catch(() => this.sources.delete(key));
       this.sources.set(key, value);
     }
     return value;
   }
+
+  private loadLines(pull: PullRef, oid: string, path: string): Promise<string[]> {
+    const key = `${pullPath(pull)}@${oid}:${path}`;
+    let value = this.sourceLines.get(key);
+    if (!value) {
+      value = loadSourceLines(pull, oid, path, this.fetchFn);
+      value.catch(() => this.sourceLines.delete(key));
+      this.sourceLines.set(key, value);
+    }
+    return value;
+  }
+}
+
+/** Whether a path is a Markdown file, by the extensions GitHub renders as Markdown. */
+export function isMarkdownPath(path: string): boolean {
+  return /\.(md|markdown|mdown|mkdn|mkd|mdwn|mdtxt|mdtext)$/i.test(path);
 }
 
 /** The signed-in viewer's avatar, from the login GitHub puts in the page. */
