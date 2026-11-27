@@ -22,6 +22,8 @@ const source = {
 
 const page = `<!doctype html><html><head><title>PR</title><meta name="user-login" content="octocat"></head><body style="font-family: sans-serif; max-width: 520px; margin: 24px; font-size: 16px; line-height: 1.6">
 <div id="diff-0f00">
+  <div class="notice" hidden>This rich diff is not supported at the moment.</div>
+  <p class="quoted">GitHub may show "This rich diff is not supported at the moment." instead.</p>
   <div class="prose-diff"><article class="markdown-body" style="padding: 0 32px">
     <h1>Guide</h1>
     <p>Keep this. <del>Old words here.</del><ins>New words here.</ins></p>
@@ -430,6 +432,8 @@ const renderedBox = unsupported.locator('[data-margink-ui="comment-box"]');
 await renderedBox.locator(".where", { hasText: /unsupported\.md L5$/ }).waitFor({ timeout: 5000 });
 await renderedBox.locator("textarea").press("Escape");
 assert.equal(await unsupported.locator(".notice").isHidden(), true, "the notice gives way to the rendered file");
+assert.equal(await tab.locator("#diff-0f00 > .notice").evaluate((n) => n.hasAttribute("data-margink-render-notice") || n.nextElementSibling?.matches("[data-margink-ui]")), false, "a hidden notice in a file GitHub rendered is ignored");
+assert.equal(await tab.locator("p.quoted + [data-margink-ui]").count(), 0, "the notice's words quoted in content are ignored");
 assert.equal(await unsupported.locator('[data-margink-ui="render-bar"]').isHidden(), true, "no extra control above the rendered file");
 
 if (process.env.SCREENSHOT_CODE) await tab.locator("#diff-c0de").screenshot({ path: process.env.SCREENSHOT_CODE });

@@ -107,3 +107,35 @@ describe("RenderFallback", () => {
     expect(document.querySelector("[data-margink-ui]")).toBeNull();
   });
 });
+
+describe("isNoticeShown", () => {
+  it("ignores a notice in a file GitHub rendered", () => {
+    document.body.innerHTML = `<div id="diff-abc"><p>This rich diff is not supported at the moment.</p><div class="prose-diff"><p>Rendered</p></div></div>`;
+    expect(findUnsupportedNotices(document)).toHaveLength(0);
+    new RenderFallback(document, async () => renderMarkdown("x", location, document), () => true).scan();
+    expect(document.querySelector("[data-margink-ui]")).toBeNull();
+  });
+
+  it("ignores a notice the browser reports as hidden", () => {
+    document.body.innerHTML = `<div id="diff-abc"><p>This rich diff is not supported at the moment.</p></div>`;
+    const p = document.querySelector("p") as HTMLElement & { checkVisibility?: () => boolean };
+    p.checkVisibility = () => false;
+    expect(findUnsupportedNotices(document)).toHaveLength(0);
+    p.checkVisibility = () => true;
+    expect(findUnsupportedNotices(document)).toHaveLength(1);
+  });
+});
+
+describe("findUnsupportedNotices", () => {
+  it("ignores the notice's words quoted in a diff line or a document", () => {
+    document.body.innerHTML = `<div id="diff-abc"><table><tr><td class="diff-text-cell"><code>+ GitHubは「This rich diff is not supported at the moment.」と表示することがあります。</code></td></tr></table>
+      <div class="markdown-body"><p>This rich diff is not supported at the moment.</p></div>
+      <p>GitHub says "This rich diff is not supported at the moment." sometimes, and more words follow.</p></div>`;
+    expect(findUnsupportedNotices(document)).toHaveLength(0);
+  });
+
+  it("finds GitHub's notice", () => {
+    document.body.innerHTML = `<div id="diff-abc"><div><span>This rich diff is not supported at the moment.</span></div></div>`;
+    expect(findUnsupportedNotices(document)).toHaveLength(1);
+  });
+});
